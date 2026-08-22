@@ -6,31 +6,31 @@ class StructLensError(Exception):
 
 
 class InputFormatError(StructLensError):
-    pass
+    """Input file is unreadable or unsupported."""
 
 
 class ChainNotFoundError(StructLensError):
-    pass
+    """Requested chain does not exist in the normalized structure."""
 
 
 class MappingError(StructLensError):
-    pass
+    """Residue mapping cannot satisfy the requested workflow."""
 
 
 class InsufficientAtomsError(StructLensError):
-    pass
+    """Required atoms are absent for a requested geometry calculation."""
 
 
 class USAlignNotFoundError(StructLensError):
-    pass
+    """Configured US-align executable cannot be found."""
 
 
 class USAlignExecutionError(StructLensError):
-    pass
+    """US-align returned an execution failure."""
 
 
 class ProjectSchemaError(StructLensError):
-    pass
+    """Project JSON does not match a supported schema."""
 
 
 __all__ = [
