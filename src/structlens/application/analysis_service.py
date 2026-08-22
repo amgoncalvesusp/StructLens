@@ -1,0 +1,240 @@
+"""Orchestration of mapping, superposition, mutation and residue metrics."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import numpy as np
+
+from structlens.core.alignment.sequence import GlobalSequenceAlignmentEngine
+from structlens.core.alignment.superposition import SuperpositionResult, superpose
+from structlens.core.errors import ChainNotFoundError, MappingError
+from structlens.core.geometry.displacement import ca_displacement
+from structlens.core.geometry.kabsch import apply_transform
+from structlens.core.mapping.manual_mapper import ManualResidueMapper
+from structlens.core.mapping.sequence_mapper import SequenceResidueMapper
+from structlens.core.metrics.sequence_metrics import calculate_sequence_metrics
+from structlens.core.models import (
+    AnalysisResult,
+    AnalysisSettings,
+    ProteinChain,
+    ProteinStructure,
+    ResidueCorrespondence,
+    ResidueId,
+    ResidueRecord,
+    SequenceAlignmentSettings,
+)
+from structlens.core.mutations.detector import detect_mutations
+
+
+class AnalysisService:
+    """Run a complete pairwise analysis without importing PyMOL."""
+
+    def __init__(self) -> None:
+        self._sequence_engine = GlobalSequenceAlignmentEngine()
+        self._mapper = SequenceResidueMapper()
+
+    def analyze(
+        self,
+        reference: ProteinStructure | ProteinChain,
+        target: ProteinStructure | ProteinChain,
+        settings: AnalysisSettings | None = None,
+        *,
+        reference_chain_id: str | None = None,
+        target_chain_id: str | None = None,
+        manual_pairs: list[tuple[object, object]] | None = None,
+    ) -> AnalysisResult:
+        settings = settings or AnalysisSettings()
+        reference_chain = _select_chain(reference, reference_chain_id)
+        target_chain = _select_chain(target, target_chain_id)
+        if settings.alignment_mode.value == "manual":
+            if not manual_pairs:
+                raise MappingError("Manual mode requires explicit residue pairs")
+            initial = ManualResidueMapper().build_correspondence(
+                reference_chain,
+                target_chain,
+                manual_pairs,  # type: ignore[arg-type]
+            )
+        else:
+            alignment = self._sequence_engine.align(
+                reference_chain,
+                target_chain,
+                settings=_sequence_settings(settings),
+            )
+            initial = self._mapper.build_correspondence(
+                reference_chain, target_chain, alignment
+            )
+        sequence_metrics = calculate_sequence_metrics(initial)
+        decision = _alignment_decision(
+            settings, sequence_metrics.identity, sequence_metrics.coverage
+        )
+        if settings.alignment_mode.value == "structure" or (
+            settings.alignment_mode.value == "auto"
+            and decision.startswith("structure-guided")
+        ):
+            if not reference_chain.source_path or not target_chain.source_path:
+                raise MappingError(
+                    "Structure-guided mapping requires source file paths and US-align"
+                )
+            raise MappingError(
+                "US-align structural mapping must be supplied through the structural adapter"
+            )
+
+        geometrized, strict, refined, excluded = _calculate_geometry(
+            initial, reference_chain, target_chain, settings
+        )
+        mutations = tuple(detect_mutations(geometrized))
+        provenance = {
+            "mapping_source": "sequence",
+            "engine": "Biopython PairwiseAligner",
+        }
+        return AnalysisResult(
+            reference_id=reference_chain.structure_id,
+            target_id=target_chain.structure_id,
+            correspondences=tuple(geometrized),
+            mutations=mutations,
+            sequence_identity=sequence_metrics.identity,
+            sequence_coverage=sequence_metrics.coverage,
+            alignment_decision=decision,
+            strict_rmsd_angstrom=strict.strict_rmsd_angstrom if strict else None,
+            refined_rmsd_angstrom=refined.strict_rmsd_angstrom if refined else None,
+            mapped_residue_count=strict.residue_count if strict else 0,
+            refined_residue_count=refined.residue_count if refined else None,
+            excluded_alignment_indices=tuple(excluded),
+            provenance=provenance,
+        )
+
+    def analyze_paths(
+        self,
+        reference_path: str | Path,
+        target_path: str | Path,
+        settings: AnalysisSettings | None = None,
+    ) -> AnalysisResult:
+        from structlens.core.parsing import load_structure
+
+        reference = load_structure(Path(reference_path))
+        target = load_structure(Path(target_path))
+        return self.analyze(reference, target, settings)
+
+
+def _select_chain(
+    structure_or_chain: ProteinStructure | ProteinChain,
+    chain_id: str | None,
+) -> ProteinChain:
+    if isinstance(structure_or_chain, ProteinChain):
+        return structure_or_chain
+    if chain_id is not None:
+        for chain in structure_or_chain.chains:
+            if chain.chain_id == chain_id:
+                return chain
+        raise ChainNotFoundError(f"Chain {chain_id!r} was not found")
+    if not structure_or_chain.chains:
+        raise ChainNotFoundError("Structure has no protein chains")
+    return structure_or_chain.chains[0]
+
+
+def _sequence_settings(settings: AnalysisSettings) -> SequenceAlignmentSettings:
+    return SequenceAlignmentSettings(
+        settings.substitution_matrix, settings.gap_open, settings.gap_extend
+    )
+
+
+def _alignment_decision(
+    settings: AnalysisSettings, identity: float, coverage: float
+) -> str:
+    mode = settings.alignment_mode.value
+    if mode == "sequence":
+        return f"sequence-guided (explicit mode; identity={identity:.3f}, coverage={coverage:.3f})"
+    if mode == "manual":
+        return "manual (explicit correspondences required)"
+    if mode == "structure":
+        return "structure-guided (explicit mode)"
+    if (
+        identity >= settings.minimum_sequence_identity
+        and coverage >= settings.minimum_sequence_coverage
+    ):
+        return f"sequence-guided (AUTO: identity={identity:.3f} >= {settings.minimum_sequence_identity:.3f}, coverage={coverage:.3f} >= {settings.minimum_sequence_coverage:.3f})"
+    return f"structure-guided (AUTO: identity={identity:.3f} or coverage={coverage:.3f} below thresholds)"
+
+
+def _record_map(chain: ProteinChain) -> dict[ResidueId, ResidueRecord]:
+    return {record.residue_id: record for record in chain.residue_records}
+
+
+def _calculate_geometry(
+    correspondences: list[ResidueCorrespondence],
+    reference: ProteinChain,
+    target: ProteinChain,
+    settings: AnalysisSettings,
+) -> tuple[
+    list[ResidueCorrespondence],
+    SuperpositionResult | None,
+    SuperpositionResult | None,
+    list[int],
+]:
+    reference_records = _record_map(reference)
+    target_records = _record_map(target)
+    pairs: list[tuple[int, np.ndarray, np.ndarray]] = []
+    for item in correspondences:
+        if item.reference is None or item.target is None:
+            continue
+        ref_record = reference_records.get(item.reference)
+        target_record = target_records.get(item.target)
+        if ref_record is None or target_record is None:
+            continue
+        ref_ca = next(
+            (atom.coordinate for atom in ref_record.atoms if atom.name.upper() == "CA"),
+            None,
+        )
+        target_ca = next(
+            (
+                atom.coordinate
+                for atom in target_record.atoms
+                if atom.name.upper() == "CA"
+            ),
+            None,
+        )
+        if ref_ca is not None and target_ca is not None:
+            pairs.append(
+                (item.alignment_index, np.asarray(ref_ca), np.asarray(target_ca))
+            )
+    if not pairs:
+        return correspondences, None, None, []
+    ref_coords = np.array([pair[1] for pair in pairs], dtype=float)
+    target_coords = np.array([pair[2] for pair in pairs], dtype=float)
+    strict = superpose(ref_coords, target_coords, residue_count=len(pairs))
+    fitted = apply_transform(target_coords, strict.rotation, strict.translation)
+    updated = list(correspondences)
+    for pair_index, (alignment_index, ref_coord, _) in enumerate(pairs):
+        item = updated[alignment_index]
+        updated[alignment_index] = replace(
+            item,
+            ca_displacement_angstrom=ca_displacement(ref_coord, fitted[pair_index]),
+        )
+    excluded: list[int] = []
+    refined = strict
+    if settings.refined_rmsd and len(pairs) >= 3:
+        keep = np.ones(len(pairs), dtype=bool)
+        for _ in range(settings.refinement_max_iterations):
+            candidate = superpose(
+                ref_coords[keep], target_coords[keep], residue_count=int(keep.sum())
+            )
+            candidate_fitted = apply_transform(
+                target_coords, candidate.rotation, candidate.translation
+            )
+            distances = np.linalg.norm(ref_coords - candidate_fitted, axis=1)
+            new_keep = distances <= settings.refinement_cutoff_angstrom
+            if new_keep.sum() < 1 or np.array_equal(new_keep, keep):
+                refined = candidate
+                keep = new_keep
+                break
+            keep = new_keep
+            refined = candidate
+        excluded = [pairs[index][0] for index, kept in enumerate(keep) if not kept]
+        for index in excluded:
+            updated[index] = replace(updated[index], is_outlier=True)
+    return updated, strict, refined if settings.refined_rmsd else None, excluded
+
+
+__all__ = ["AnalysisService"]

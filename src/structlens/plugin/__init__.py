@@ -1,0 +1,1 @@
+"""Optional PyMOL plugin package."""

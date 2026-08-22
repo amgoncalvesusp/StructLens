@@ -1,0 +1,14 @@
+US-align (Version 20240101)
+Name of Structure_1: reference.pdb
+Name of Structure_2: target.pdb
+Aligned length= 3, RMSD= 0.25, Seq_ID=n_identical/n_aligned= 2/3
+TM-score= 0.90000 (if normalized by length of Structure_1, i.e., LN=3, d0=0.50)
+TM-score= 0.85000 (if normalized by length of Structure_2, i.e., LN=3, d0=0.50)
+AC-D
+:: :
+ATGD
+------ The rotation matrix to rotate Structure_1 to Structure_2 ------
+ i          t(i)         u(i,1)         u(i,2)         u(i,3)
+ 0      1.000000     1.000000     0.000000     0.000000
+ 1      2.000000     0.000000     1.000000     0.000000
+ 2      3.000000     0.000000     0.000000     1.000000
