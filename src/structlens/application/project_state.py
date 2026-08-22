@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from structlens.core.errors import ProjectSchemaError
@@ -34,7 +35,9 @@ class ProjectState:
         object.__setattr__(self, "target_sources", tuple(self.target_sources))
         object.__setattr__(self, "key_residues", tuple(self.key_residues))
         object.__setattr__(self, "analysis_results", tuple(self.analysis_results))
-        object.__setattr__(self, "visualization_state", dict(self.visualization_state))
+        object.__setattr__(
+            self, "visualization_state", MappingProxyType(dict(self.visualization_state))
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,7 +60,7 @@ class ProjectState:
             "analysis_results": [
                 _analysis_to_dict(result) for result in self.analysis_results
             ],
-            "visualization_state": self.visualization_state,
+            "visualization_state": dict(self.visualization_state),
         }
 
     def to_json(self, *, indent: int = 2) -> str:

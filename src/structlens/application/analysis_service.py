@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
@@ -24,6 +25,7 @@ from structlens.core.models import (
     ResidueId,
     ResidueRecord,
     SequenceAlignmentSettings,
+    StructuralAlignmentSettings,
 )
 from structlens.core.mutations.detector import detect_mutations
 
@@ -31,9 +33,10 @@ from structlens.core.mutations.detector import detect_mutations
 class AnalysisService:
     """Run a complete pairwise analysis without importing PyMOL."""
 
-    def __init__(self) -> None:
+    def __init__(self, structural_adapter: object | None = None) -> None:
         self._sequence_engine = GlobalSequenceAlignmentEngine()
         self._mapper = SequenceResidueMapper()
+        self._structural_adapter = structural_adapter
 
     def analyze(
         self,
@@ -69,26 +72,50 @@ class AnalysisService:
         decision = _alignment_decision(
             settings, sequence_metrics.identity, sequence_metrics.coverage
         )
+        tm_score: float | None = None
+        provenance = {
+            "mapping_source": "sequence",
+            "engine": "Biopython PairwiseAligner",
+        }
         if settings.alignment_mode.value == "structure" or (
             settings.alignment_mode.value == "auto"
             and decision.startswith("structure-guided")
         ):
-            if not reference_chain.source_path or not target_chain.source_path:
-                raise MappingError(
-                    "Structure-guided mapping requires source file paths and US-align"
+            adapter = self._structural_adapter
+            if adapter is None:
+                if not reference_chain.source_path or not target_chain.source_path:
+                    raise MappingError(
+                        "Structure-guided mapping requires source file paths and US-align"
+                    )
+                from structlens.integrations.usalign.adapter import USAlignAdapter
+
+                adapter = USAlignAdapter(
+                    executable=settings.usalign_executable,
+                    structure_paths={
+                        reference_chain.structure_id: reference_chain.source_path,
+                        target_chain.structure_id: target_chain.source_path,
+                    },
                 )
-            raise MappingError(
-                "US-align structural mapping must be supplied through the structural adapter"
+            structural_result = cast(Any, adapter).align(
+                reference_chain,
+                target_chain,
+                StructuralAlignmentSettings(
+                    executable=settings.usalign_executable or "USalign"
+                ),
             )
+            initial = list(structural_result.correspondences)
+            tm_score = structural_result.tm_score
+            provenance = {
+                "mapping_source": "US-align",
+                "engine": "US-align",
+                "executable_version": structural_result.executable_version or "unknown",
+            }
+            sequence_metrics = calculate_sequence_metrics(initial)
 
         geometrized, strict, refined, excluded = _calculate_geometry(
             initial, reference_chain, target_chain, settings
         )
         mutations = tuple(detect_mutations(geometrized))
-        provenance = {
-            "mapping_source": "sequence",
-            "engine": "Biopython PairwiseAligner",
-        }
         return AnalysisResult(
             reference_id=reference_chain.structure_id,
             target_id=target_chain.structure_id,
@@ -102,6 +129,7 @@ class AnalysisService:
             mapped_residue_count=strict.residue_count if strict else 0,
             refined_residue_count=refined.residue_count if refined else None,
             excluded_alignment_indices=tuple(excluded),
+            tm_score=tm_score,
             provenance=provenance,
         )
 
