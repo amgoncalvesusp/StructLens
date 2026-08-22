@@ -5,16 +5,23 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from structlens.core.errors import (
+    USAlignExecutionError as CoreUSAlignExecutionError,
+)
+from structlens.core.errors import (
+    USAlignNotFoundError as CoreUSAlignNotFoundError,
+)
+
 
 class USAlignError(Exception):
     """Base class for US-align adapter failures."""
 
 
-class USAlignNotFoundError(USAlignError):
+class USAlignNotFoundError(CoreUSAlignNotFoundError, USAlignError):
     """Raised when US-align is neither configured nor available on PATH."""
 
 
-class USAlignExecutionError(USAlignError):
+class USAlignExecutionError(CoreUSAlignExecutionError, USAlignError):
     """Raised when a US-align process cannot produce a valid alignment."""
 
 
