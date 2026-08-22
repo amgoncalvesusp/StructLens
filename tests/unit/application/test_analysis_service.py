@@ -4,6 +4,7 @@ import numpy as np
 
 from structlens.application.analysis_service import AnalysisService
 from structlens.core.models import (
+    AlignmentMode,
     AnalysisSettings,
     AtomRecord,
     ProteinChain,
@@ -50,6 +51,10 @@ def test_analysis_service_builds_authoritative_map_and_zero_self_rmsd() -> None:
     assert result.mutation_count == 0
     assert result.strict_rmsd_angstrom == 0.0
     assert len(result.correspondences) == 2
+    assert all(
+        correspondence.backbone_rmsd_angstrom == 0.0
+        for correspondence in result.correspondences
+    )
 
 
 def test_analysis_service_is_rigid_body_invariant() -> None:
@@ -60,3 +65,20 @@ def test_analysis_service_is_rigid_body_invariant() -> None:
 
     assert np.isclose(result.strict_rmsd_angstrom, 0.0)
     assert result.refined_rmsd_angstrom == result.strict_rmsd_angstrom
+
+
+def test_manual_mapping_coverage_uses_full_chain_denominators() -> None:
+    reference = _structure("ref")
+    target = _structure("target")
+    reference_chain = reference.chains[0]
+    target_chain = target.chains[0]
+
+    result = AnalysisService().analyze(
+        reference,
+        target,
+        AnalysisSettings(alignment_mode=AlignmentMode.MANUAL),
+        manual_pairs=[(reference_chain.residue_records[0].residue_id, target_chain.residue_records[0].residue_id)],
+    )
+
+    assert result.sequence_identity == 1.0
+    assert result.sequence_coverage == 0.5

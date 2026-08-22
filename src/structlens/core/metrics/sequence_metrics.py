@@ -27,14 +27,26 @@ class SequenceAlignmentMetrics:
 
 def calculate_sequence_metrics(
     correspondences: Sequence[ResidueCorrespondence],
+    reference_sequence: str | None = None,
+    target_sequence: str | None = None,
 ) -> SequenceAlignmentMetrics:
-    """Calculate mapped-alignment metrics without inferring from residue numbers."""
+    """Calculate mapped-alignment metrics without inferring from residue numbers.
 
-    reference_canonical = sum(
-        _is_canonical(item.reference_one_letter) for item in correspondences
+    When complete sequences are supplied, coverage denominators are derived from
+    those sequences rather than from the mapped correspondence subset.  This is
+    important for manual mappings, where an intentionally partial map must not
+    appear to cover the entire chain.
+    """
+
+    reference_canonical = (
+        sum(_is_canonical(letter) for letter in reference_sequence)
+        if reference_sequence is not None
+        else sum(_is_canonical(item.reference_one_letter) for item in correspondences)
     )
-    target_canonical = sum(
-        _is_canonical(item.target_one_letter) for item in correspondences
+    target_canonical = (
+        sum(_is_canonical(letter) for letter in target_sequence)
+        if target_sequence is not None
+        else sum(_is_canonical(item.target_one_letter) for item in correspondences)
     )
     aligned = [
         item

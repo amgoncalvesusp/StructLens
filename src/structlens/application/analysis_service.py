@@ -13,6 +13,7 @@ from structlens.core.alignment.superposition import SuperpositionResult, superpo
 from structlens.core.errors import ChainNotFoundError, MappingError
 from structlens.core.geometry.displacement import ca_displacement
 from structlens.core.geometry.kabsch import apply_transform
+from structlens.core.geometry.rmsd import residue_rmsds
 from structlens.core.mapping.manual_mapper import ManualResidueMapper
 from structlens.core.mapping.sequence_mapper import SequenceResidueMapper
 from structlens.core.metrics.sequence_metrics import calculate_sequence_metrics
@@ -68,7 +69,9 @@ class AnalysisService:
             initial = self._mapper.build_correspondence(
                 reference_chain, target_chain, alignment
             )
-        sequence_metrics = calculate_sequence_metrics(initial)
+        sequence_metrics = calculate_sequence_metrics(
+            initial, reference_chain.sequence, target_chain.sequence
+        )
         decision = _alignment_decision(
             settings, sequence_metrics.identity, sequence_metrics.coverage
         )
@@ -110,7 +113,9 @@ class AnalysisService:
                 "engine": "US-align",
                 "executable_version": structural_result.executable_version or "unknown",
             }
-            sequence_metrics = calculate_sequence_metrics(initial)
+            sequence_metrics = calculate_sequence_metrics(
+                initial, reference_chain.sequence, target_chain.sequence
+            )
 
         geometrized, strict, refined, excluded = _calculate_geometry(
             initial, reference_chain, target_chain, settings
@@ -236,9 +241,44 @@ def _calculate_geometry(
     updated = list(correspondences)
     for pair_index, (alignment_index, ref_coord, _) in enumerate(pairs):
         item = updated[alignment_index]
+        if item.reference is None or item.target is None:
+            continue
+        transformed_target_record = target_records.get(item.target)
+        transformed_target_atoms = (
+            {
+                atom.name: tuple(
+                    float(value)
+                    for value in apply_transform(
+                        np.asarray([atom.coordinate]), strict.rotation, strict.translation
+                    )[0]
+                )
+                for atom in transformed_target_record.atoms
+            }
+            if transformed_target_record is not None
+            else {}
+        )
+        reference_record = reference_records.get(item.reference)
+        residue_metrics = (
+            residue_rmsds(
+                {atom.name: atom.coordinate for atom in reference_record.atoms},
+                transformed_target_atoms,
+                reference_record.residue_name,
+            )
+            if reference_record is not None and transformed_target_record is not None
+            else None
+        )
         updated[alignment_index] = replace(
             item,
             ca_displacement_angstrom=ca_displacement(ref_coord, fitted[pair_index]),
+            backbone_rmsd_angstrom=(
+                residue_metrics.backbone_rmsd_angstrom if residue_metrics else None
+            ),
+            sidechain_rmsd_angstrom=(
+                residue_metrics.sidechain_rmsd_angstrom if residue_metrics else None
+            ),
+            all_heavy_atom_rmsd_angstrom=(
+                residue_metrics.all_heavy_atom_rmsd_angstrom if residue_metrics else None
+            ),
         )
     excluded: list[int] = []
     refined = strict
@@ -260,8 +300,10 @@ def _calculate_geometry(
             keep = new_keep
             refined = candidate
         excluded = [pairs[index][0] for index, kept in enumerate(keep) if not kept]
-        for index in excluded:
-            updated[index] = replace(updated[index], is_outlier=True)
+        for alignment_index in excluded:
+            updated[alignment_index] = replace(
+                updated[alignment_index], is_outlier=True
+            )
     return updated, strict, refined if settings.refined_rmsd else None, excluded
 
 
