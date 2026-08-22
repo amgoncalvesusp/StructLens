@@ -17,3 +17,11 @@ def test_project_state_json_round_trip_preserves_settings_and_keys() -> None:
     assert restored == state
     assert restored.settings.alignment_mode is AlignmentMode.SEQUENCE
     assert restored.key_residues[0].insertion_code == "A"
+
+
+def test_project_state_can_record_sha256_source_hash(tmp_path) -> None:
+    source = tmp_path / "reference.pdb"
+    source.write_text("ATOM\n", encoding="utf-8")
+    state = ProjectState(reference_source=str(source)).with_source_hashes()
+
+    assert len(state.source_hashes[str(source)]) == 64

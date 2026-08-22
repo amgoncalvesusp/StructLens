@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -28,6 +29,7 @@ class ProjectState:
     settings: AnalysisSettings = field(default_factory=AnalysisSettings)
     key_residues: tuple[ResidueId, ...] = ()
     analysis_results: tuple[AnalysisResult, ...] = ()
+    source_hashes: dict[str, str] = field(default_factory=dict)
     visualization_state: dict[str, Any] = field(default_factory=dict)
     schema_version: str = "0.1"
 
@@ -35,6 +37,7 @@ class ProjectState:
         object.__setattr__(self, "target_sources", tuple(self.target_sources))
         object.__setattr__(self, "key_residues", tuple(self.key_residues))
         object.__setattr__(self, "analysis_results", tuple(self.analysis_results))
+        object.__setattr__(self, "source_hashes", MappingProxyType(dict(self.source_hashes)))
         object.__setattr__(
             self, "visualization_state", MappingProxyType(dict(self.visualization_state))
         )
@@ -60,6 +63,7 @@ class ProjectState:
             "analysis_results": [
                 _analysis_to_dict(result) for result in self.analysis_results
             ],
+            "source_hashes": dict(self.source_hashes),
             "visualization_state": dict(self.visualization_state),
         }
 
@@ -108,6 +112,7 @@ class ProjectState:
             settings=settings,
             key_residues=residues,
             analysis_results=analyses,
+            source_hashes=dict(payload.get("source_hashes", {})),
             visualization_state=dict(payload.get("visualization_state", {})),
             schema_version="0.1",
         )
@@ -138,6 +143,7 @@ class ProjectState:
             self.settings,
             self.key_residues,
             retained + (analysis,),
+            self.source_hashes,
             self.visualization_state,
             self.schema_version,
         )
@@ -151,6 +157,29 @@ class ProjectState:
             self.settings,
             self.key_residues + (residue,),
             self.analysis_results,
+            self.source_hashes,
+            self.visualization_state,
+            self.schema_version,
+        )
+
+    def with_source_hashes(self) -> ProjectState:
+        paths = tuple(
+            path
+            for path in ((self.reference_source,) + self.target_sources)
+            if path
+        )
+        hashes = {
+            path: _sha256_file(path)
+            for path in paths
+            if Path(path).is_file()
+        }
+        return ProjectState(
+            self.reference_source,
+            self.target_sources,
+            self.settings,
+            self.key_residues,
+            self.analysis_results,
+            hashes,
             self.visualization_state,
             self.schema_version,
         )
@@ -238,6 +267,14 @@ def _analysis_from_dict(payload: dict[str, Any]) -> AnalysisResult:
         tm_score=payload.get("tm_score"),
         provenance=payload.get("provenance", {}),
     )
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 __all__ = ["ProjectState"]
