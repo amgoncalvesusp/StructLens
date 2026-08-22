@@ -8,7 +8,7 @@ StructLens is an English-only Python engine and optional PyMOL plugin for reprod
 python -m pip install -e .
 ```
 
-PDB, mmCIF/CIF (including gzip-compressed PDB), and FASTA inputs are supported. Biopython and NumPy are required. Structure-guided mapping uses an explicitly configured US-align executable; StructLens never downloads binaries automatically.
+PDB, mmCIF/CIF (including gzip-compressed PDB), and FASTA inputs are supported. NumPy, Biopython, openpyxl, and Pillow are installed as runtime dependencies for analysis and export. Structure-guided mapping uses an explicitly configured US-align executable; StructLens never downloads binaries automatically.
 
 ## First comparison
 
