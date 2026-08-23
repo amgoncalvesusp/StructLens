@@ -43,7 +43,6 @@ jobs:
             src/structlens/cli/main.py
           python -m pip install ".[gui]"
           python -m PyInstaller \
-            --onefile \
             --clean \
             --noconfirm \
             --name StructLens \
@@ -108,7 +107,6 @@ jobs:
             src/structlens/cli/main.py
           python -m pip install ".[gui]"
           python -m PyInstaller \
-            --onefile \
             --clean \
             --noconfirm \
             --name StructLens \
@@ -131,17 +129,18 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
           package_root="build/deb"
           mkdir -p "$package_root/DEBIAN" "$package_root/usr/bin" \
+            "$package_root/usr/lib" \
             "$package_root/usr/share/structlens" "$package_root/usr/share/applications" \
             "$package_root/usr/share/icons/hicolor/256x256/apps"
           cp dist/structlens "$package_root/usr/bin/structlens"
-          cp dist/StructLens "$package_root/usr/bin/structlens-gui"
+          cp -R dist/StructLens "$package_root/usr/lib/structlens-gui"
           cp src/structlens/plugin/assets/structlens_icon.png \
             "$package_root/usr/share/structlens/structlens_icon.png"
           cp dist/structlens-*.whl packaging/linux/install-structlens.sh README.md LICENSE \
             "$package_root/usr/share/structlens/"
           cp src/structlens/plugin/assets/structlens_icon.png \
             "$package_root/usr/share/icons/hicolor/256x256/apps/structlens.png"
-          chmod 0755 "$package_root/usr/bin/structlens" "$package_root/usr/bin/structlens-gui" \
+          chmod 0755 "$package_root/usr/bin/structlens" "$package_root/usr/lib/structlens-gui/StructLens" \
             "$package_root/usr/share/structlens/install-structlens.sh"
           cat > "$package_root/DEBIAN/control" <<EOF
           Package: structlens
@@ -159,7 +158,7 @@ jobs:
           Type=Application
           Name=StructLens
           Comment=Protein structure comparison
-          Exec=/usr/bin/structlens-gui
+          Exec=/usr/lib/structlens-gui/StructLens
           Icon=structlens
           Terminal=false
           Categories=Science;Education;

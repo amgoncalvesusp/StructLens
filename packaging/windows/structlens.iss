@@ -1,7 +1,7 @@
 #define MyAppName "StructLens"
 #define MyAppPublisher "Adriano Marques Gonçalves (UNIARA)"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.4"
+  #define MyAppVersion "0.1.5"
 #endif
 
 [Setup]
@@ -22,10 +22,10 @@ OutputBaseFilename=StructLens-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\StructLens.exe
+UninstallDisplayIcon={app}\gui\StructLens.exe
 
 [Files]
-Source: "..\..\dist\StructLens.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\StructLens\*"; DestDir: "{app}\gui"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\..\dist\structlens.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\structlens-*.whl"; DestDir: "{app}\packages"; Flags: ignoreversion
 Source: "Install-StructLens.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -34,12 +34,12 @@ Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\StructLens"; Filename: "{app}\StructLens.exe"
+Name: "{autoprograms}\StructLens"; Filename: "{app}\gui\StructLens.exe"
 Name: "{autoprograms}\StructLens CLI"; Filename: "{app}\structlens.exe"; Parameters: "--help"
-Name: "{autodesktop}\StructLens"; Filename: "{app}\StructLens.exe"; Tasks: desktopicon
+Name: "{autodesktop}\StructLens"; Filename: "{app}\gui\StructLens.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Run]
-Filename: "{app}\StructLens.exe"; Description: "Launch StructLens"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\gui\StructLens.exe"; Description: "Launch StructLens"; Flags: postinstall nowait skipifsilent

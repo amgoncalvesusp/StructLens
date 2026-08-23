@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Packages the PyQt5 GUI as an onedir application inside the Windows and Linux setups, avoiding slow one-file assembly while preserving double-click launch shortcuts.
+
 ## 0.1.4
 
 - Switched native setup builds to the compact PyQt5 runtime, keeping PySide6 available through the `gui-pyside6` extra for plugin deployments.
