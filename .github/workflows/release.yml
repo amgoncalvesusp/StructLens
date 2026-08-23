@@ -149,4 +149,7 @@ jobs:
       - name: Create release and upload setup files
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" release/* --repo "${GITHUB_REPOSITORY}" --title "StructLens ${GITHUB_REF_NAME}" --generate-notes
+        run: |
+          mkdir -p release-assets
+          find release -type f \( -name 'StructLens-Setup.exe' -o -name 'StructLens-Setup.deb' -o -name 'structlens-*.whl' \) -exec cp {} release-assets/ \;
+          gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "StructLens ${GITHUB_REF_NAME}" --generate-notes
