@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structlens"
-version = "0.1.0"
+version = "0.1.1"
 description = "Reproducible protein-structure comparison and visualization core"
 authors = [
     { name = "Adriano Marques Gonçalves (UNIARA)" },

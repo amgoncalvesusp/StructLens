@@ -6,9 +6,9 @@ Author: Adriano Marques Gonçalves (UNIARA)
 
 ## Installers and releases
 
-Tagged releases publish a Python wheel plus portable bundles for Windows x64 and Linux x86_64. Each bundle contains the StructLens CLI, the wheel, and a platform installer script that installs the package into the selected Python environment. The PyMOL plugin is then available through `structlens.plugin.entrypoint`.
+Tagged releases publish a Python wheel plus native setup installers for Windows x64 and Linux x86_64. On Windows, double-click `StructLens-Setup.exe`; on Linux, open `StructLens-Setup.deb` with the system software/package installer. Both setups install the standalone CLI and include the wheel and PyMOL plugin installer files.
 
-Windows: run `Install-StructLens.ps1` in PowerShell. Linux: run `./install-structlens.sh`, optionally setting `PYTHON_BIN` to the Python executable used by PyMOL.
+For PyMOL, run the included plugin installer script against the Python executable used by your PyMOL installation, then load `structlens.plugin.entrypoint` through Plugin > Install Plugin.
 
 ## Install
 
