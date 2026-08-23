@@ -16,7 +16,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=release
+OutputDir=..\..\release
 OutputBaseFilename=StructLens-Setup
 Compression=lzma2
 SolidCompression=yes
@@ -24,11 +24,11 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\StructLens.exe
 
 [Files]
-Source: "dist\StructLens.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\structlens-*.whl"; DestDir: "{app}\packages"; Flags: ignoreversion
-Source: "packaging\windows\Install-StructLens.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\StructLens.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\structlens-*.whl"; DestDir: "{app}\packages"; Flags: ignoreversion
+Source: "Install-StructLens.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\StructLens"; Filename: "{app}\StructLens.exe"; Parameters: "--help"
