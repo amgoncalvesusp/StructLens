@@ -49,7 +49,8 @@ jobs:
       - name: Compile Windows setup
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
+          if ("${{ github.ref_name }}" -match '^v') { $version = "${{ github.ref_name }}" -replace '^v', '' }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging/windows/structlens.iss
 
       - name: Upload Windows setup artifact
@@ -92,7 +93,8 @@ jobs:
       - name: Assemble Debian setup package
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
           package_root="build/deb"
           mkdir -p "$package_root/DEBIAN" "$package_root/usr/bin" \
             "$package_root/usr/share/structlens" "$package_root/usr/share/applications"
