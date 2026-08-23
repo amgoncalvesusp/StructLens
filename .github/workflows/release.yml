@@ -1,0 +1,94 @@
+name: Build and release installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }} installer
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+            archive: zip
+          - platform: linux-x86_64
+            os: ubuntu-latest
+            archive: tar.gz
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel and standalone CLI
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip build pyinstaller
+          python -m build --wheel
+          python -m PyInstaller \
+            --onefile \
+            --clean \
+            --noconfirm \
+            --name StructLens \
+            --paths src \
+            --collect-all structlens \
+            --collect-data Bio \
+            src/structlens/cli/main.py
+
+      - name: Assemble Windows bundle
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $bundle = "release/StructLens-${{ github.ref_name }}-${{ matrix.platform }}"
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          Copy-Item dist/structlens-*.whl $bundle
+          Copy-Item dist/StructLens.exe $bundle
+          Copy-Item packaging/windows/Install-StructLens.ps1 $bundle
+          Copy-Item README.md, LICENSE $bundle
+          Compress-Archive -Path "$bundle/*" -DestinationPath "release/StructLens-${{ github.ref_name }}-${{ matrix.platform }}.zip"
+
+      - name: Assemble Linux bundle
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          bundle="release/StructLens-${GITHUB_REF_NAME}-${{ matrix.platform }}"
+          mkdir -p "$bundle"
+          cp dist/structlens-*.whl dist/StructLens packaging/linux/install-structlens.sh README.md LICENSE "$bundle/"
+          chmod +x "$bundle/install-structlens.sh" "$bundle/StructLens"
+          tar -czf "release/StructLens-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz" -C release "$(basename "$bundle")"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StructLens-${{ matrix.platform }}
+          path: release/StructLens-${{ github.ref_name }}-${{ matrix.platform }}.${{ matrix.archive }}
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" release/* --repo "${GITHUB_REPOSITORY}" --title "StructLens ${GITHUB_REF_NAME}" --generate-notes

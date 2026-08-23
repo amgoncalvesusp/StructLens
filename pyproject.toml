@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "structlens"
 version = "0.1.0"
 description = "Reproducible protein-structure comparison and visualization core"
+authors = [
+    { name = "Adriano Marques Gonçalves (UNIARA)" },
+]
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",

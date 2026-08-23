@@ -2,6 +2,14 @@
 
 StructLens is an English-only Python engine and optional PyMOL plugin for reproducible protein sequence/structure comparison. It keeps an explicit residue correspondence table, detects descriptive mutation classes, calculates strict and optional refined structural metrics, and exports scientific tables.
 
+Author: Adriano Marques Gonçalves (UNIARA)
+
+## Installers and releases
+
+Tagged releases publish a Python wheel plus portable bundles for Windows x64 and Linux x86_64. Each bundle contains the StructLens CLI, the wheel, and a platform installer script that installs the package into the selected Python environment. The PyMOL plugin is then available through `structlens.plugin.entrypoint`.
+
+Windows: run `Install-StructLens.ps1` in PowerShell. Linux: run `./install-structlens.sh`, optionally setting `PYTHON_BIN` to the Python executable used by PyMOL.
+
 ## Install
 
 ```bash

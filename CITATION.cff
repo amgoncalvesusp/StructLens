@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: StructLens
+message: "If you use StructLens, please cite the software and its author."
+type: software
+authors:
+  - family-names: Gonçalves
+    given-names: Adriano Marques
+    affiliation: UNIARA
+version: 0.1.0
+date-released: 2026-08-23
+license: MIT
