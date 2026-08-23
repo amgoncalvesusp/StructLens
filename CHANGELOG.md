@@ -1,8 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- Switched native setup builds to the compact PyQt5 runtime, keeping PySide6 available through the `gui-pyside6` extra for plugin deployments.
+- Added binding selection through `STRUCTLENS_QT_BINDING` for deterministic plugin and standalone environments.
+
 ## 0.1.3
 
-- Optimized native GUI packaging to collect only the PySide6 binaries, data, and Qt modules used by StructLens, keeping setup builds reliable on Windows and Linux.
+- Optimized native GUI packaging and standalone startup flow.
 
 ## 0.1.2
 

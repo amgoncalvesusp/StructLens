@@ -47,16 +47,15 @@ jobs:
             --clean \
             --noconfirm \
             --name StructLens \
+            --noconsole \
             --icon packaging/windows/structlens.ico \
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
-            --collect-binaries PySide6 \
-            --collect-data PySide6 \
-            --exclude-module PyQt5 \
-            --hidden-import PySide6.QtCore \
-            --hidden-import PySide6.QtGui \
-            --hidden-import PySide6.QtWidgets \
+            --exclude-module PySide6 \
+            --hidden-import PyQt5.QtCore \
+            --hidden-import PyQt5.QtGui \
+            --hidden-import PyQt5.QtWidgets \
             src/structlens/gui/main.py
           ./dist/structlens.exe --help
 
@@ -113,16 +112,15 @@ jobs:
             --clean \
             --noconfirm \
             --name StructLens \
+            --noconsole \
             --icon packaging/windows/structlens.ico \
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
-            --collect-binaries PySide6 \
-            --collect-data PySide6 \
-            --exclude-module PyQt5 \
-            --hidden-import PySide6.QtCore \
-            --hidden-import PySide6.QtGui \
-            --hidden-import PySide6.QtWidgets \
+            --exclude-module PySide6 \
+            --hidden-import PyQt5.QtCore \
+            --hidden-import PyQt5.QtGui \
+            --hidden-import PyQt5.QtWidgets \
             src/structlens/gui/main.py
           ./dist/structlens --help
 

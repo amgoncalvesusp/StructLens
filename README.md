@@ -28,7 +28,7 @@ The command reports sequence identity, coverage, strict Cα RMSD, optional refin
 
 ## Desktop GUI
 
-Run `structlens-gui` after installing the `gui` extra, or launch StructLens from the Windows/Linux setup shortcut. The standalone Evidence Bench loads PDB/mmCIF files, runs comparisons without freezing the window, exposes correspondence and mutation tables, and exports XLSX/CSV/JSON. PyMOL-only object loading and 3D rendering remain available when the same panel is opened as the plugin inside PyMOL.
+Run `structlens-gui` after installing the `gui` extra (PyQt5), or launch StructLens from the Windows/Linux setup shortcut. The standalone Evidence Bench loads PDB/mmCIF files, runs comparisons without freezing the window, exposes correspondence and mutation tables, and exports XLSX/CSV/JSON. PyMOL-only object loading and 3D rendering remain available when the same panel is opened as the plugin inside PyMOL. PySide6 users can opt in with `pip install "structlens[gui-pyside6]"`.
 
 ## Scientific terminology
 
