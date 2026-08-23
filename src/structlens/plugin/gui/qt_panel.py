@@ -187,7 +187,7 @@ class PanelController:
         self.progress.setFixedWidth(180)
         self.progress.setVisible(False)
         footer_layout.addWidget(self.progress)
-        footer_layout.addWidget(_label(self.w, "v0.1.2 · units are explicit", "footerMeta"))
+        footer_layout.addWidget(_label(self.w, "v0.1.3 · units are explicit", "footerMeta"))
         root.addWidget(footer)
 
         self.compare_button.clicked.connect(self._start_analysis)

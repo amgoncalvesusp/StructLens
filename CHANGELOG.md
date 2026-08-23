@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Optimized native GUI packaging to collect only the PySide6 binaries, data, and Qt modules used by StructLens, keeping setup builds reliable on Windows and Linux.
+
 ## 0.1.2
 
 - Added the standalone Evidence Bench desktop GUI with file-based PDB/mmCIF loading, comparison, evidence tables, and exports.

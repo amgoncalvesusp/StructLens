@@ -51,8 +51,12 @@ jobs:
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
-            --collect-all PySide6 \
+            --collect-binaries PySide6 \
+            --collect-data PySide6 \
             --exclude-module PyQt5 \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
             src/structlens/gui/main.py
           ./dist/structlens.exe --help
 
@@ -113,8 +117,12 @@ jobs:
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
-            --collect-all PySide6 \
+            --collect-binaries PySide6 \
+            --collect-data PySide6 \
             --exclude-module PyQt5 \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
             src/structlens/gui/main.py
           ./dist/structlens --help
 
