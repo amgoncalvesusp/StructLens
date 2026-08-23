@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from typing import Any, cast
 
 import numpy as np
 
 from structlens.core.alignment.sequence import GlobalSequenceAlignmentEngine
 from structlens.core.alignment.superposition import SuperpositionResult, superpose
-from structlens.core.errors import ChainNotFoundError, MappingError
+from structlens.core.errors import AnalysisCancelledError, ChainNotFoundError, MappingError
 from structlens.core.geometry.displacement import ca_displacement
 from structlens.core.geometry.kabsch import apply_transform
 from structlens.core.geometry.rmsd import residue_rmsds
@@ -48,7 +49,9 @@ class AnalysisService:
         reference_chain_id: str | None = None,
         target_chain_id: str | None = None,
         manual_pairs: list[tuple[object, object]] | None = None,
+        cancel_event: Event | None = None,
     ) -> AnalysisResult:
+        _check_cancel(cancel_event)
         settings = settings or AnalysisSettings()
         reference_chain = _select_chain(reference, reference_chain_id)
         target_chain = _select_chain(target, target_chain_id)
@@ -69,6 +72,7 @@ class AnalysisService:
             initial = self._mapper.build_correspondence(
                 reference_chain, target_chain, alignment
             )
+        _check_cancel(cancel_event)
         sequence_metrics = calculate_sequence_metrics(
             initial, reference_chain.sequence, target_chain.sequence
         )
@@ -117,6 +121,7 @@ class AnalysisService:
                 initial, reference_chain.sequence, target_chain.sequence
             )
 
+        _check_cancel(cancel_event)
         geometrized, strict, refined, excluded = _calculate_geometry(
             initial, reference_chain, target_chain, settings
         )
@@ -171,6 +176,11 @@ def _sequence_settings(settings: AnalysisSettings) -> SequenceAlignmentSettings:
     return SequenceAlignmentSettings(
         settings.substitution_matrix, settings.gap_open, settings.gap_extend
     )
+
+
+def _check_cancel(cancel_event: Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise AnalysisCancelledError("Comparison cancelled by the user")
 
 
 def _alignment_decision(

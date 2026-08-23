@@ -32,12 +32,14 @@ class ProjectState:
     source_hashes: dict[str, str] = field(default_factory=dict)
     visualization_state: dict[str, Any] = field(default_factory=dict)
     schema_version: str = "0.1"
+    source_objects: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "target_sources", tuple(self.target_sources))
         object.__setattr__(self, "key_residues", tuple(self.key_residues))
         object.__setattr__(self, "analysis_results", tuple(self.analysis_results))
         object.__setattr__(self, "source_hashes", MappingProxyType(dict(self.source_hashes)))
+        object.__setattr__(self, "source_objects", MappingProxyType(dict(self.source_objects)))
         object.__setattr__(
             self, "visualization_state", MappingProxyType(dict(self.visualization_state))
         )
@@ -64,6 +66,7 @@ class ProjectState:
                 _analysis_to_dict(result) for result in self.analysis_results
             ],
             "source_hashes": dict(self.source_hashes),
+            "source_objects": dict(self.source_objects),
             "visualization_state": dict(self.visualization_state),
         }
 
@@ -115,6 +118,7 @@ class ProjectState:
             source_hashes=dict(payload.get("source_hashes", {})),
             visualization_state=dict(payload.get("visualization_state", {})),
             schema_version="0.1",
+            source_objects=dict(payload.get("source_objects", {})),
         )
 
     @classmethod
@@ -146,6 +150,7 @@ class ProjectState:
             self.source_hashes,
             self.visualization_state,
             self.schema_version,
+            self.source_objects,
         )
 
     def with_key_residue(self, residue: ResidueId) -> ProjectState:
@@ -160,6 +165,7 @@ class ProjectState:
             self.source_hashes,
             self.visualization_state,
             self.schema_version,
+            self.source_objects,
         )
 
     def with_source_hashes(self) -> ProjectState:
@@ -182,6 +188,7 @@ class ProjectState:
             hashes,
             self.visualization_state,
             self.schema_version,
+            self.source_objects,
         )
 
 

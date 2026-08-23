@@ -32,3 +32,12 @@ def test_panel_model_keeps_ui_state_separate_from_analysis_state() -> None:
     assert updated.status == "Ready"
     assert updated.analysis is None
     assert model.status == "Choose a reference structure and a target to begin."
+
+
+def test_panel_status_transition_leaves_cancelled_model_idle() -> None:
+    model = StructLensPanelModel().with_busy("Comparing structures…")
+    cancelled = model.with_status("Comparison cancelled.")
+
+    assert model.busy is True
+    assert cancelled.busy is False
+    assert cancelled.status == "Comparison cancelled."

@@ -17,6 +17,10 @@ class MappingError(StructLensError):
     """Residue mapping cannot satisfy the requested workflow."""
 
 
+class AnalysisCancelledError(StructLensError):
+    """An explicit user cancellation stopped an in-progress comparison."""
+
+
 class InsufficientAtomsError(StructLensError):
     """Required atoms are absent for a requested geometry calculation."""
 
@@ -34,6 +38,7 @@ class ProjectSchemaError(StructLensError):
 
 
 __all__ = [
+    "AnalysisCancelledError",
     "ChainNotFoundError",
     "InputFormatError",
     "InsufficientAtomsError",

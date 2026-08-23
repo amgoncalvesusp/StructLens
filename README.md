@@ -26,7 +26,7 @@ BLOSUM62, Grantham distance, structural displacement, and mutation classes are d
 
 ## PyMOL plugin
 
-Load `structlens.plugin.entrypoint` from the PyMOL plugin manager. The plugin is namespaced and reversible: it only deletes selections it created. PyMOL is a visualization backend, never the scientific state. If Qt/PyMOL is unavailable, the core and CLI remain usable.
+Load `structlens.plugin.entrypoint` from the PyMOL plugin manager. The Evidence Bench GUI provides Project, Alignment, Mutations, Residues, Visualization, and Results stages: choose files or existing PyMOL objects, select chains, run a background comparison, inspect double-clickable tables, apply a preset, and export the result. The plugin is namespaced and reversible: it only deletes selections it created. PyMOL is a visualization backend, never the scientific state. If Qt/PyMOL is unavailable, the core and CLI remain usable.
 
 The panel sections are Project, Alignment, Mutations, Residues, Visualization, and Results. Each workflow option has contextual English help. Visualization presets are Minimal, Publication, Mutation focus, Structural deviation, Active site, and Presentation.
 

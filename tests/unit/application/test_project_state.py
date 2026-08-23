@@ -10,6 +10,7 @@ def test_project_state_json_round_trip_preserves_settings_and_keys() -> None:
         target_sources=("target.pdb",),
         settings=AnalysisSettings(alignment_mode=AlignmentMode.SEQUENCE),
         key_residues=(ResidueId("ref", "1", "A", "130", "A", "SER"),),
+        source_objects={"reference": "reference_obj", "target": "target_obj"},
     )
 
     restored = ProjectState.from_json(state.to_json())
@@ -17,6 +18,7 @@ def test_project_state_json_round_trip_preserves_settings_and_keys() -> None:
     assert restored == state
     assert restored.settings.alignment_mode is AlignmentMode.SEQUENCE
     assert restored.key_residues[0].insertion_code == "A"
+    assert restored.source_objects["reference"] == "reference_obj"
 
 
 def test_project_state_can_record_sha256_source_hash(tmp_path) -> None:

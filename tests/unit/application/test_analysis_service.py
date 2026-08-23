@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from threading import Event
+
 import numpy as np
+import pytest
 
 from structlens.application.analysis_service import AnalysisService
+from structlens.core.errors import AnalysisCancelledError
 from structlens.core.models import (
     AlignmentMode,
     AnalysisSettings,
@@ -82,3 +86,15 @@ def test_manual_mapping_coverage_uses_full_chain_denominators() -> None:
 
     assert result.sequence_identity == 1.0
     assert result.sequence_coverage == 0.5
+
+
+def test_analysis_honors_cancellation_before_work_starts() -> None:
+    cancel_event = Event()
+    cancel_event.set()
+
+    with pytest.raises(AnalysisCancelledError):
+        AnalysisService().analyze(
+            _structure("ref"),
+            _structure("target"),
+            cancel_event=cancel_event,
+        )
