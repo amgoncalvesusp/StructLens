@@ -32,6 +32,24 @@ def test_qt_panel_builds_operate_workflow(application) -> None:
     panel.deleteLater()
 
 
+def test_standalone_mode_keeps_file_workflow_without_pymol_actions(application) -> None:
+    panel = build_qt_panel(command=None)
+    controller = panel._structlens_controller
+
+    assert controller.command is None
+    assert any(
+        "Standalone mode" in label.text()
+        for label in panel.findChildren(qt_widgets.QLabel)
+    )
+    assert not any(
+        button.text() == "Apply to PyMOL"
+        for button in panel.findChildren(qt_widgets.QPushButton)
+    )
+
+    controller.close()
+    panel.deleteLater()
+
+
 def test_failed_source_reload_clears_previous_structure(application) -> None:
     panel = build_qt_panel()
     controller = panel._structlens_controller

@@ -153,14 +153,18 @@ class PanelController:
         self.nav.setSpacing(4)
         for section in GUI_SECTIONS:
             item = self.w.QListWidgetItem(section)
-            item.setToolTip(_page_subtitle(section))
+            item.setToolTip(_page_subtitle(section, standalone=self.command is None))
             self.nav.addItem(item)
         self.nav.setCurrentRow(0)
         side_layout.addWidget(self.nav, 1)
         side_layout.addWidget(
             _label(
                 self.w,
-                "The correspondence table is the source of truth. PyMOL only renders reversible selections.",
+                (
+                    "The correspondence table is the source of truth. PyMOL only renders reversible selections."
+                    if self.command is not None
+                    else "The correspondence table is the source of truth. Filters and exports remain available here."
+                ),
                 "sidebarNote",
             )
         )
@@ -183,7 +187,7 @@ class PanelController:
         self.progress.setFixedWidth(180)
         self.progress.setVisible(False)
         footer_layout.addWidget(self.progress)
-        footer_layout.addWidget(_label(self.w, "v0.1 · units are explicit", "footerMeta"))
+        footer_layout.addWidget(_label(self.w, "v0.1.2 · units are explicit", "footerMeta"))
         root.addWidget(footer)
 
         self.compare_button.clicked.connect(self._start_analysis)
@@ -225,6 +229,7 @@ class PanelController:
         source_layout.addWidget(self.reference_meta, 0, 3)
         reference_object = _button(self.w, "Use object…", "secondaryButton")
         reference_object.clicked.connect(lambda: self._use_pymol_object("reference"))
+        reference_object.setVisible(self.command is not None)
         source_layout.addWidget(reference_object, 0, 4)
         source_layout.addWidget(_label(self.w, "TARGET", "fieldLabel"), 1, 0)
         self.target_edit = self.w.QLineEdit(source_group)
@@ -237,9 +242,22 @@ class PanelController:
         source_layout.addWidget(self.target_meta, 1, 3)
         target_object = _button(self.w, "Use object…", "secondaryButton")
         target_object.clicked.connect(lambda: self._use_pymol_object("target"))
+        target_object.setVisible(self.command is not None)
         source_layout.addWidget(target_object, 1, 4)
         source_layout.setColumnStretch(1, 1)
         source_layout.setColumnStretch(3, 1)
+        if self.command is None:
+            source_layout.addWidget(
+                _label(
+                    self.w,
+                    "Standalone mode · load coordinate files here; PyMOL object sources are available in the plugin.",
+                    "fieldMeta",
+                ),
+                2,
+                0,
+                1,
+                5,
+            )
         content.addWidget(source_group)
 
         chain_group = self.w.QGroupBox("Chain selection", self.widget)
@@ -374,7 +392,11 @@ class PanelController:
     def _build_residues_page(self) -> None:
         _, content = self._add_page(
             "Residues",
-            "Inspect the authoritative correspondence table; double-click a row to focus it in PyMOL.",
+            (
+                "Inspect the authoritative correspondence table; double-click a row to select it."
+                if self.command is None
+                else "Inspect the authoritative correspondence table; double-click a row to focus it in PyMOL."
+            ),
         )
         self.residue_summary = _label(self.w, "No comparison yet.", "inlineNote")
         content.addWidget(self.residue_summary)
@@ -401,7 +423,11 @@ class PanelController:
     def _build_visualization_page(self) -> None:
         _, content = self._add_page(
             "Visualization",
-            "Choose a reversible PyMOL view. Filters and legends stay tied to the correspondence table.",
+            (
+                "Explore filters and legends tied to the correspondence table; 3D rendering is available in the PyMOL plugin."
+                if self.command is None
+                else "Choose a reversible PyMOL view. Filters and legends stay tied to the correspondence table."
+            ),
         )
         controls = self.w.QGroupBox("View controls", self.widget)
         layout = self.w.QGridLayout(controls)
@@ -467,19 +493,32 @@ class PanelController:
         content.addWidget(self.visualization_count)
         actions = self.w.QHBoxLayout()
         actions.addStretch(1)
-        reset = _button(self.w, "Reset StructLens view", "secondaryButton")
-        reset.clicked.connect(self._reset_visualization)
-        actions.addWidget(reset)
-        apply_button = _button(self.w, "Apply to PyMOL", "primaryButton")
-        apply_button.clicked.connect(self._apply_visualization)
-        actions.addWidget(apply_button)
+        if self.command is None:
+            actions.addWidget(
+                _label(
+                    self.w,
+                    "Standalone mode · filters and legends are inspectable here; open the plugin for 3D rendering.",
+                    "fieldMeta",
+                )
+            )
+        else:
+            reset = _button(self.w, "Reset StructLens view", "secondaryButton")
+            reset.clicked.connect(self._reset_visualization)
+            actions.addWidget(reset)
+            apply_button = _button(self.w, "Apply to PyMOL", "primaryButton")
+            apply_button.clicked.connect(self._apply_visualization)
+            actions.addWidget(apply_button)
         content.addLayout(actions)
 
     # ---------------------------------------------------------------- Results
     def _build_results_page(self) -> None:
         _, content = self._add_page(
             "Results",
-            "Review global metrics, branch choice, and export the same result used by the PyMOL view.",
+            (
+                "Review global metrics, branch choice, and export the same result used by the evidence tables."
+                if self.command is None
+                else "Review global metrics, branch choice, and export the same result used by the PyMOL view."
+            ),
         )
         self.result_decision = _label(self.w, "No comparison yet.", "resultDecision")
         self.result_decision.setWordWrap(True)
@@ -912,7 +951,8 @@ class PanelController:
         }
         for key, value in values.items():
             self.result_labels[key].setText(value)
-        self.mutation_summary.setText(f"{result.mutation_count} mutation event(s) · double-click a row to focus it")
+        focus_hint = "double-click a row to focus it" if self.command is not None else "double-click a row to select it"
+        self.mutation_summary.setText(f"{result.mutation_count} mutation event(s) · {focus_hint}")
         self.residue_summary.setText(f"{len(result.correspondences)} aligned positions · {result.mapped_residue_count} mapped Cα pairs")
         self._fill_mutations(result)
         self._fill_residues(result)
@@ -976,6 +1016,8 @@ class PanelController:
         selection = self._pymol.focus_residue(item, result.target_id)
         if selection:
             self._set_status(f"Focused {selection} in PyMOL")
+        elif self.command is None:
+            self._set_status(f"Residue {alignment_index} selected in the evidence table")
         else:
             self._set_status(f"Residue {alignment_index} selected; open inside PyMOL to focus it")
 
@@ -1213,13 +1255,17 @@ def _configure_table(table: Any, widgets: Any) -> None:
     table.setMinimumHeight(220)
 
 
-def _page_subtitle(section: str) -> str:
+def _page_subtitle(section: str, *, standalone: bool = False) -> str:
     return {
         "Project": "Choose sources and chains.",
         "Alignment": "Choose and explain correspondence.",
         "Mutations": "Review sequence changes.",
         "Residues": "Inspect mapped positions.",
-        "Visualization": "Apply a reversible PyMOL view.",
+        "Visualization": (
+            "Inspect filters and legends; 3D rendering is available in the plugin."
+            if standalone
+            else "Apply a reversible PyMOL view."
+        ),
         "Results": "Review and export metrics.",
     }[section]
 

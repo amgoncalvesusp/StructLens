@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Added the standalone Evidence Bench desktop GUI with file-based PDB/mmCIF loading, comparison, evidence tables, and exports.
+- Added a multi-resolution StructLens icon to the desktop application, Windows setup, and Linux desktop entry.
+- Added GUI-aware Windows and Linux setup builds while preserving the PyMOL plugin workflow.
+
 ## 0.1.1
 
 - Added native Windows and Linux setup installers for double-click installation.

@@ -26,6 +26,10 @@ structlens compare reference.pdb target.pdb --mode auto --output comparison.xlsx
 
 The command reports sequence identity, coverage, strict Cα RMSD, optional refined RMSD, mapped residues, mutation count, and the selected mapping branch. Use `--csv` or `--json` for additional exports.
 
+## Desktop GUI
+
+Run `structlens-gui` after installing the `gui` extra, or launch StructLens from the Windows/Linux setup shortcut. The standalone Evidence Bench loads PDB/mmCIF files, runs comparisons without freezing the window, exposes correspondence and mutation tables, and exports XLSX/CSV/JSON. PyMOL-only object loading and 3D rendering remain available when the same panel is opened as the plugin inside PyMOL.
+
 ## Scientific terminology
 
 `Cα displacement` is the distance between one aligned Cα pair. It is not a residue RMSD. Backbone RMSD uses matched N/Cα/C/O atoms; side-chain RMSD uses matched side-chain heavy atoms and valid symmetry permutations. Strict RMSD preserves every eligible pair. Refined RMSD is a separate result with an explicit cutoff and excluded alignment indices; no outlier is silently deleted.

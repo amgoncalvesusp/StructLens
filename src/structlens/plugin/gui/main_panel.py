@@ -114,7 +114,10 @@ def build_qt_panel(
 
     qt = load_qt()
     if qt is None:
-        raise RuntimeError("StructLens GUI requires the Qt binding shipped with PyMOL")
+        raise RuntimeError(
+            "StructLens GUI requires PySide6 or PyQt5; install structlens[gui] "
+            "or launch it inside a PyMOL environment that provides Qt"
+        )
     from .qt_panel import build_panel
 
     return build_panel(qt, parent=parent, command=command)

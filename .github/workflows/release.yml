@@ -31,16 +31,30 @@ jobs:
           python -m pip install --upgrade pip build pyinstaller
           python -m build --wheel
           python -m pip install .
+          python scripts/build_icon.py
+          python -m PyInstaller \
+            --onefile \
+            --clean \
+            --noconfirm \
+            --name structlens \
+            --paths src \
+            --collect-all structlens \
+            --collect-data Bio \
+            src/structlens/cli/main.py
+          python -m pip install ".[gui]"
           python -m PyInstaller \
             --onefile \
             --clean \
             --noconfirm \
             --name StructLens \
+            --icon packaging/windows/structlens.ico \
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
-            src/structlens/cli/main.py
-          ./dist/StructLens.exe --help
+            --collect-all PySide6 \
+            --exclude-module PyQt5 \
+            src/structlens/gui/main.py
+          ./dist/structlens.exe --help
 
       - name: Install Inno Setup
         shell: pwsh
@@ -79,16 +93,30 @@ jobs:
           python -m pip install --upgrade pip build pyinstaller
           python -m build --wheel
           python -m pip install .
+          python scripts/build_icon.py
+          python -m PyInstaller \
+            --onefile \
+            --clean \
+            --noconfirm \
+            --name structlens \
+            --paths src \
+            --collect-all structlens \
+            --collect-data Bio \
+            src/structlens/cli/main.py
+          python -m pip install ".[gui]"
           python -m PyInstaller \
             --onefile \
             --clean \
             --noconfirm \
             --name StructLens \
+            --icon packaging/windows/structlens.ico \
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
-            src/structlens/cli/main.py
-          ./dist/StructLens --help
+            --collect-all PySide6 \
+            --exclude-module PyQt5 \
+            src/structlens/gui/main.py
+          ./dist/structlens --help
 
       - name: Assemble Debian setup package
         shell: bash
@@ -97,11 +125,18 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
           package_root="build/deb"
           mkdir -p "$package_root/DEBIAN" "$package_root/usr/bin" \
-            "$package_root/usr/share/structlens" "$package_root/usr/share/applications"
-          cp dist/StructLens "$package_root/usr/bin/structlens"
+            "$package_root/usr/share/structlens" "$package_root/usr/share/applications" \
+            "$package_root/usr/share/icons/hicolor/256x256/apps"
+          cp dist/structlens "$package_root/usr/bin/structlens"
+          cp dist/StructLens "$package_root/usr/bin/structlens-gui"
+          cp src/structlens/plugin/assets/structlens_icon.png \
+            "$package_root/usr/share/structlens/structlens_icon.png"
           cp dist/structlens-*.whl packaging/linux/install-structlens.sh README.md LICENSE \
             "$package_root/usr/share/structlens/"
-          chmod 0755 "$package_root/usr/bin/structlens" "$package_root/usr/share/structlens/install-structlens.sh"
+          cp src/structlens/plugin/assets/structlens_icon.png \
+            "$package_root/usr/share/icons/hicolor/256x256/apps/structlens.png"
+          chmod 0755 "$package_root/usr/bin/structlens" "$package_root/usr/bin/structlens-gui" \
+            "$package_root/usr/share/structlens/install-structlens.sh"
           cat > "$package_root/DEBIAN/control" <<EOF
           Package: structlens
           Version: ${version}
@@ -118,8 +153,9 @@ jobs:
           Type=Application
           Name=StructLens
           Comment=Protein structure comparison
-          Exec=/usr/bin/structlens --help
-          Terminal=true
+          Exec=/usr/bin/structlens-gui
+          Icon=structlens
+          Terminal=false
           Categories=Science;Education;
           EOF
           mkdir -p release
