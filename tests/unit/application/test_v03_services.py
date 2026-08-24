@@ -62,3 +62,20 @@ def test_site_metrics_report_coverage_and_unavailable_sasa() -> None:
     assert metrics.mapped_residue_count == 1
     assert metrics.coverage_fraction == 0.5
     assert metrics.sasa_angstrom2 is None
+
+
+def test_ligand_radius_site_uses_explicit_ligand_atoms() -> None:
+    reference = (_residue("ref", 1, "SER", (0, 0, 0)), _residue("ref", 2, "LYS", (10, 0, 0)))
+    target = (_residue("tar", 1, "SER", (0, 0, 0)),)
+    definition = SiteDefinition("ligand", "Ligand site", SiteDefinitionMode.LIGAND_RADIUS, (), None, "LIG1", 2.0)
+    ligand = AtomRecord("C1", "C", (0.5, 0, 0))
+    metrics = calculate_site_metrics(
+        definition,
+        reference,
+        target,
+        {reference[0].residue_id: target[0].residue_id},
+        target_structure_id="tar",
+        ligand_atoms={"LIG1": (ligand,)},
+    )
+    assert metrics.mapped_residue_count == 1
+    assert metrics.coverage_fraction == 1.0

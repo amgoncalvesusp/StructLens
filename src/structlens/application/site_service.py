@@ -77,15 +77,15 @@ def calculate_site_metrics(
     target_structure_id: str,
     target_transform: np.ndarray | None = None,
     sasa_angstrom2: float | None = None,
+    ligand_atoms: Mapping[str, Sequence[AtomRecord]] | None = None,
 ) -> SiteMetrics:
     """Calculate site metrics while preserving deleted/unmapped residues."""
 
     target_by_id = {item.residue_id: item for item in target_residues}
-    selected = define_site(definition, reference_residues)
+    selected = define_site(definition, reference_residues, ligand_atoms=ligand_atoms)
     mapped_pairs = [(item, target_by_id[correspondence[item.residue_id]]) for item in selected if item.residue_id in correspondence and correspondence[item.residue_id] in target_by_id]
     ref_ca: list[tuple[float, float, float]] = []
     tar_ca: list[tuple[float, float, float]] = []
-    ref_atoms: list[tuple[float, float, float]] = []
     tar_atoms: list[tuple[float, float, float]] = []
     polar = charged = 0
     for reference, target in mapped_pairs:
@@ -94,7 +94,6 @@ def calculate_site_metrics(
         if len(ref_coordinates) and len(target_coordinates):
             ref_ca.append(tuple(ref_coordinates[0]))
             tar_ca.append(tuple(target_coordinates[0]))
-        ref_atoms.extend(_coords(reference).tolist())
         tar_atoms.extend(_coords(target).tolist())
         polar += int(reference.residue_name.upper() in {"SER", "THR", "ASN", "GLN", "TYR", "HIS"})
         charged += int(reference.residue_name.upper() in {"ARG", "LYS", "ASP", "GLU", "HIS"})
@@ -113,7 +112,6 @@ def calculate_site_metrics(
     site_fit_rmsd = global_rmsd
     if ref_centroid is not None and tar_centroid is not None and len(ref_array):
         site_fit_rmsd = _rmsd(ref_array - ref_centroid, tar_array - tar_centroid)
-    reference_atoms = np.asarray(ref_atoms, dtype=np.float64)
     return SiteMetrics(
         definition.site_id,
         target_structure_id,
@@ -123,7 +121,10 @@ def calculate_site_metrics(
         site_fit_rmsd,
         centroid_displacement,
         rg,
-        _envelope_volume(reference_atoms),
+        # Metrics describe the selected structure (the target here), so the
+        # envelope is built from target heavy atoms; unavailable target atoms
+        # remain unavailable rather than inheriting reference geometry.
+        _envelope_volume(np.asarray(tar_atoms, dtype=np.float64)),
         sasa_angstrom2,
         polar / len(mapped_pairs) if mapped_pairs else None,
         charged / len(mapped_pairs) if mapped_pairs else None,
