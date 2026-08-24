@@ -11,6 +11,10 @@ class InteractionThresholds:
     pi_centroid_distance_angstrom: float = 5.5
     cation_pi_distance_angstrom: float = 6.0
     metal_distance_angstrom: float = 3.0
+    pi_parallel_angle_tolerance_degrees: float = 30.0
+    pi_t_shape_min_angle_degrees: float = 60.0
+    pi_t_shape_max_angle_degrees: float = 120.0
+    cation_pi_normal_tolerance_degrees: float = 45.0
 
 
 __all__ = ["InteractionThresholds"]
