@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -107,6 +108,17 @@ class PanelController:
         self._poll_timer: Any = None
         self._cancel_event = Event()
         self.chart_export_buttons: list[Any] = []
+        # v0.3 scientific services own these calculations.  The GUI only
+        # retains JSON-ready payloads supplied by the orchestration layer so
+        # the same authoritative values can be handed to PyMOL.
+        self._v03_bundle_payloads: dict[str, Mapping[str, Any] | None] = {
+            "msa_summary": None,
+            "conservation": None,
+            "interactions": None,
+            "sites": None,
+            "evidence": None,
+            "vectors": None,
+        }
         self._build_shell()
         self._build_project_page()
         self._build_mutations_page()
@@ -1310,6 +1322,44 @@ class PanelController:
         self._update_legend()
 
     # ---------------------------------------------------------------- exports
+    def set_v03_bundle_payloads(
+        self,
+        *,
+        msa_summary: Mapping[str, Any] | None = None,
+        conservation: Mapping[str, Any] | None = None,
+        interactions: Mapping[str, Any] | None = None,
+        sites: Mapping[str, Any] | None = None,
+        evidence: Mapping[str, Any] | None = None,
+        vectors: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Stage authoritative v0.3 payloads for the next PyMOL export.
+
+        The GUI deliberately accepts already calculated, JSON-ready mappings
+        rather than invoking a scientific service.  ``None`` means that the
+        corresponding analysis is unavailable and the bundle writer will
+        omit that optional entry instead of fabricating an empty result.
+        Shallow copies prevent later top-level mutations by a producer from
+        changing the staged export.
+        """
+
+        payloads = {
+            "msa_summary": msa_summary,
+            "conservation": conservation,
+            "interactions": interactions,
+            "sites": sites,
+            "evidence": evidence,
+            "vectors": vectors,
+        }
+        self._v03_bundle_payloads = {
+            name: None if payload is None else dict(payload)
+            for name, payload in payloads.items()
+        }
+
+    def _v03_bundle_kwargs(self) -> dict[str, Mapping[str, Any] | None]:
+        """Return optional v0.3 payloads without calculating or normalizing them."""
+
+        return dict(self._v03_bundle_payloads)
+
     def _export_xlsx(self) -> None:
         self._export("xlsx", export_analysis_xlsx, "XLSX")
 
@@ -1343,6 +1393,7 @@ class PanelController:
                 targets={result.target_id: self.target_structure},
                 analysis=result,
                 provenance=dict(result.provenance),
+                **self._v03_bundle_kwargs(),
             )
             self._set_status(f"Validated PyMOL bundle written · {Path(path).name}")
         except (OSError, ValueError, BundleValidationError) as exc:
@@ -1366,6 +1417,7 @@ class PanelController:
                 targets={result.target_id: self.target_structure},
                 analysis=result,
                 provenance=dict(result.provenance),
+                **self._v03_bundle_kwargs(),
             )
             launcher = PyMOLLauncher(self.pymol_edit.text().strip() or None)
             launch = launcher.launch_bundle(bundle_path)

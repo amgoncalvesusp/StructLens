@@ -116,3 +116,59 @@ def test_failed_source_reload_clears_previous_structure(application) -> None:
 
     controller.close()
     panel.deleteLater()
+
+
+def test_pymol_bundle_export_forwards_only_staged_v03_payloads(
+    application, monkeypatch, tmp_path: Path
+) -> None:
+    panel = build_qt_panel(command=None)
+    controller = panel._structlens_controller
+    fixture = Path("tests/fixtures/parsing/numbering_altloc.pdb")
+    assert controller._load_source("reference", fixture) is True
+    assert controller._load_source("target", fixture) is True
+
+    controller.model = controller.model.with_analysis(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=1.0,
+            alignment_decision="test",
+        )
+    )
+    assert all(value is None for value in controller._v03_bundle_kwargs().values())
+
+    payloads = {
+        "msa_summary": {"columns": [{"index": 0}]},
+        "conservation": {"columns": [{"reference_label": "A:100"}]},
+        "interactions": {"differences": []},
+        "sites": {"metrics": []},
+        "evidence": {"cards": []},
+        "vectors": {"vectors": []},
+    }
+    controller.set_v03_bundle_payloads(**payloads)
+    forwarded: dict[str, object] = {}
+
+    def fake_write_bundle(output_path, **kwargs):
+        forwarded.update(kwargs)
+        return Path(output_path)
+
+    monkeypatch.setattr(
+        "structlens.plugin.gui.qt_panel.write_pymol_bundle", fake_write_bundle
+    )
+    output = tmp_path / "analysis.structlens-pymol"
+    monkeypatch.setattr(
+        controller.w.QFileDialog,
+        "getSaveFileName",
+        lambda *_args: (str(output), "StructLens-PyMOL bundle (*.structlens-pymol)"),
+    )
+
+    controller._export_pymol_bundle()
+
+    for name, payload in payloads.items():
+        assert forwarded[name] == payload
+
+    controller.close()
+    panel.deleteLater()
