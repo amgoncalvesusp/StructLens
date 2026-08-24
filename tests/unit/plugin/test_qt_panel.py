@@ -10,6 +10,7 @@ from structlens.application.chart_data import ChartDataset, ChartSeries  # noqa:
 from structlens.application.msa_service import align_sequences  # noqa: E402
 from structlens.core.models import AnalysisResult, ResidueId  # noqa: E402
 from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef  # noqa: E402
+from structlens.core.sites import SiteMetrics  # noqa: E402
 from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
 
 
@@ -75,7 +76,9 @@ def test_analysis_and_manual_recovery_land_on_the_relevant_pages(application) ->
             alignment_decision="test",
         )
     )
-    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Results")
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Structures")
+    assert controller.structure_result_table.rowCount() == 1
+    assert controller.results_table.rowCount() == 1
 
     fixture = Path("tests/fixtures/parsing/numbering_altloc.pdb")
     assert controller._load_source("reference", fixture) is True
@@ -119,6 +122,61 @@ def test_failed_source_reload_clears_previous_structure(application) -> None:
     assert controller.reference_structure is None
     assert controller.reference_chain_combo.count() == 0
 
+    controller.close()
+    panel.deleteLater()
+
+
+def test_results_page_compiles_all_analysis_results_and_preserves_history(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    first = AnalysisResult(
+        reference_id="reference",
+        target_id="target-a",
+        correspondences=(),
+        mutations=(),
+        sequence_identity=0.90,
+        sequence_coverage=0.80,
+        alignment_decision="accepted",
+    )
+    second = AnalysisResult(
+        reference_id="reference",
+        target_id="target-b",
+        correspondences=(),
+        mutations=(),
+        sequence_identity=0.75,
+        sequence_coverage=0.70,
+        alignment_decision="accepted",
+    )
+    controller._analysis_finished(first)
+    controller._analysis_finished(second)
+    assert controller.results_table.rowCount() == 2
+    assert controller.results_table.item(0, 1).text() == "target-a"
+    assert controller.results_table.item(1, 1).text() == "target-b"
+    assert len(controller._analysis_history) == 2
+    controller.close()
+    panel.deleteLater()
+
+
+def test_sites_and_charts_show_authoritative_result_areas(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    metrics = SiteMetrics(
+        site_id="active-site",
+        structure_id="target",
+        mapped_residue_count=4,
+        coverage_fraction=0.8,
+        global_frame_backbone_rmsd_angstrom=1.2,
+        site_fitted_backbone_rmsd_angstrom=0.6,
+        sasa_angstrom2=123.4,
+        atomic_envelope_volume_angstrom3=456.7,
+    )
+    controller.set_site_metrics((metrics,))
+    assert controller.site_metrics_table.rowCount() == 1
+    assert controller.site_metrics_table.item(0, 0).text() == "active-site"
+    dataset = ChartDataset("msa", "MSA", "column", "conservation", "fraction", (), "descriptive")
+    controller.set_chart_datasets({"MSA conservation profile": dataset})
+    controller.chart_combo.setCurrentText("MSA conservation profile")
+    assert controller.chart_preview_status.text() != "Chart unavailable. Run the corresponding scientific service first."
     controller.close()
     panel.deleteLater()
 

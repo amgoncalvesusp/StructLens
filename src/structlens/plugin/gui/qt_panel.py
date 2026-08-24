@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import re
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +13,13 @@ from threading import Event
 from typing import Any
 
 from structlens.application.analysis_service import AnalysisService
-from structlens.application.chart_data import ChartDataset, MatrixDataset, structural_deviation_profile
+from structlens.application.chart_data import (
+    ChartDataset,
+    ChartSeries,
+    MatrixDataset,
+    mutation_conservation_matrix,
+    structural_deviation_profile,
+)
 from structlens.application.chart_export import export_chart_image, export_chart_xlsx
 from structlens.application.export_service import (
     export_analysis_csv,
@@ -33,6 +40,7 @@ from structlens.core.models import (
 )
 from structlens.core.msa import MultipleSequenceAlignment
 from structlens.core.parsing import load_structure
+from structlens.core.sites import SiteMetrics
 from structlens.integrations.pymol.adapter import PyMOLAdapter
 from structlens.integrations.pymol.launcher import PyMOLLauncher
 from structlens.integrations.pymol.selections import selection_name
@@ -124,6 +132,11 @@ class PanelController:
         }
         self._v03_export_records: dict[str, Any] = {}
         self._chart_datasets: dict[str, ChartDataset | MatrixDataset] = {}
+        self._analysis_history: tuple[AnalysisResult, ...] = ()
+        self._site_metrics: tuple[SiteMetrics, ...] = ()
+        self._sequence_chart_canvas: Any = None
+        self._chart_canvas: Any = None
+        self._msa_chart_dataset: ChartDataset | None = None
         self._build_shell()
         self._build_project_page()
         self._build_mutations_page()
@@ -439,6 +452,35 @@ class PanelController:
         run_layout.addWidget(self.run_button)
         content.addLayout(run_layout)
 
+        structure_results = self.w.QGroupBox("Latest structure comparison", self.widget)
+        structure_results_layout = self.w.QVBoxLayout(structure_results)
+        structure_results_layout.setContentsMargins(18, 16, 18, 16)
+        self.structure_result_summary = _label(
+            self.w,
+            "No structure comparison result yet. Run comparison to populate this tab.",
+            "inlineNote",
+        )
+        self.structure_result_summary.setWordWrap(True)
+        structure_results_layout.addWidget(self.structure_result_summary)
+        self.structure_result_table = self.w.QTableWidget(0, 9, structure_results)
+        self.structure_result_table.setHorizontalHeaderLabels(
+            [
+                "Reference",
+                "Target",
+                "Decision",
+                "Strict RMSD (Å)",
+                "Refined RMSD (Å)",
+                "TM-score",
+                "Mapped",
+                "Excluded",
+                "Backend",
+            ]
+        )
+        _configure_table(self.structure_result_table, self.w)
+        self.structure_result_table.setMinimumHeight(92)
+        structure_results_layout.addWidget(self.structure_result_table)
+        content.addWidget(structure_results)
+
     # -------------------------------------------------------------- Mutations
     def _build_mutations_page(self) -> None:
         _, content = self._add_page(
@@ -469,6 +511,16 @@ class PanelController:
         _configure_table(self.msa_table, self.w)
         self.msa_table.setMinimumHeight(150)
         msa_layout.addWidget(self.msa_table, 1)
+        self.sequence_chart_status = _label(
+            self.w,
+            "Sequence conservation chart unavailable until an authoritative MSA or comparison result is present.",
+            "inlineNote",
+        )
+        self.sequence_chart_status.setWordWrap(True)
+        msa_layout.addWidget(self.sequence_chart_status)
+        self.sequence_chart_layout = self.w.QVBoxLayout()
+        self.sequence_chart_layout.setContentsMargins(0, 0, 0, 0)
+        msa_layout.addLayout(self.sequence_chart_layout, 1)
         msa_layout.addWidget(
             _label(
                 self.w,
@@ -484,6 +536,11 @@ class PanelController:
         self.msa_table.setRowCount(0)
         if alignment is None:
             self.msa_summary_label.setText("MSA unavailable.")
+            self._msa_chart_dataset = None
+            self._clear_chart_layout(self.sequence_chart_layout)
+            self.sequence_chart_status.setText(
+                "Sequence conservation chart unavailable until an authoritative MSA or comparison result is present."
+            )
             return
         self.msa_table.setRowCount(len(alignment.aligned_rows))
         for row_index, (structure_id, row) in enumerate(alignment.aligned_rows):
@@ -495,6 +552,8 @@ class PanelController:
             f"{len(alignment.aligned_rows)} sequences · {len(alignment.columns)} alignment columns · "
             f"{sum(column.reference_residue is None for column in alignment.columns)} reference-relative insertion columns."
         )
+        self._render_msa_chart(alignment)
+        self._render_selected_chart()
 
     # --------------------------------------------------------------- Residues
     def _build_residues_page(self) -> None:
@@ -590,6 +649,26 @@ class PanelController:
                 "helpText",
             )
         )
+        self.site_metrics_table = self.w.QTableWidget(0, 12, metrics)
+        self.site_metrics_table.setHorizontalHeaderLabels(
+            [
+                "Site",
+                "Structure",
+                "Mapped",
+                "Coverage",
+                "Global RMSD (Å)",
+                "Site-fitted RMSD (Å)",
+                "Centroid Δ (Å)",
+                "R gyration (Å)",
+                "Envelope (Å³)",
+                "SASA (Å²)",
+                "Polar",
+                "Charged",
+            ]
+        )
+        _configure_table(self.site_metrics_table, self.w)
+        self.site_metrics_table.setMinimumHeight(108)
+        metrics_layout.addWidget(self.site_metrics_table)
         content.addWidget(metrics)
 
     # ---------------------------------------------------------- Visualization
@@ -631,6 +710,20 @@ class PanelController:
         chart_layout.setColumnStretch(1, 1)
         self.chart_combo.currentTextChanged.connect(self._update_chart_explanation)
         content.addWidget(chart_group)
+        chart_preview = self.w.QGroupBox("Authoritative chart preview", self.widget)
+        chart_preview_layout = self.w.QVBoxLayout(chart_preview)
+        chart_preview_layout.setContentsMargins(18, 16, 18, 16)
+        self.chart_preview_status = _label(
+            self.w,
+            "Chart unavailable. Run the corresponding scientific service first.",
+            "inlineNote",
+        )
+        self.chart_preview_status.setWordWrap(True)
+        chart_preview_layout.addWidget(self.chart_preview_status)
+        self.chart_preview_layout = self.w.QVBoxLayout()
+        self.chart_preview_layout.setContentsMargins(0, 0, 0, 0)
+        chart_preview_layout.addLayout(self.chart_preview_layout, 1)
+        content.addWidget(chart_preview, 1)
         note = _label(
             self.w,
             "Use the Export page for XLSX, JPEG, or TIFF output. PyMOL-specific filtering and reversible rendering controls remain on the PyMOL page.",
@@ -828,6 +921,35 @@ class PanelController:
             self.result_labels[key] = value
         metric_layout.setColumnStretch(1, 1)
         content.addWidget(metrics)
+        history = self.w.QGroupBox("Compiled analysis history", self.widget)
+        history_layout = self.w.QVBoxLayout(history)
+        history_layout.setContentsMargins(18, 16, 18, 16)
+        self.results_history_status = _label(
+            self.w,
+            "No completed analyses yet. Results from each comparison will be retained here.",
+            "inlineNote",
+        )
+        self.results_history_status.setWordWrap(True)
+        history_layout.addWidget(self.results_history_status)
+        self.results_table = self.w.QTableWidget(0, 10, history)
+        self.results_table.setHorizontalHeaderLabels(
+            [
+                "Reference",
+                "Target",
+                "Decision",
+                "Identity",
+                "Coverage",
+                "Strict RMSD (Å)",
+                "Refined RMSD (Å)",
+                "TM-score",
+                "Mapped",
+                "Mutations",
+            ]
+        )
+        _configure_table(self.results_table, self.w)
+        self.results_table.setMinimumHeight(130)
+        history_layout.addWidget(self.results_table, 1)
+        content.addWidget(history, 1)
 
     # --------------------------------------------------------------- bindings
     def _wire_navigation(self) -> None:
@@ -1089,11 +1211,14 @@ class PanelController:
 
     def _analysis_finished(self, result: AnalysisResult) -> None:
         self._invalidate_analysis_views()
+        self._analysis_history = (*self._analysis_history, result)
         self.model = self.model.with_analysis(result)
         self._set_busy(False)
         self._populate_result(result)
         self._set_status(f"Analysis complete · {len(result.correspondences)} aligned positions")
-        self.nav.setCurrentRow(_RESULTS_PAGE_INDEX)
+        # The comparison result is immediately visible on the Structures tab;
+        # Results remains the compiled cross-analysis view.
+        self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
 
     def _analysis_failed(self, message: str) -> None:
         self.model = self.model.with_error(f"Comparison failed: {message}")
@@ -1218,6 +1343,16 @@ class PanelController:
         self.set_v03_bundle_payloads()
         self.mutation_table.setRowCount(0)
         self.residue_table.setRowCount(0)
+        self.structure_result_table.setRowCount(0)
+        self.structure_result_summary.setText(
+            "No structure comparison result yet. Run comparison to populate this tab."
+        )
+        self.set_site_metrics(())
+        self.chart_preview_status.setText(
+            "Chart unavailable. Run the corresponding scientific service first."
+        )
+        self._clear_chart_layout(self.chart_preview_layout)
+        self._clear_chart_layout(self.sequence_chart_layout)
         self._update_chart_export_state(self.chart_combo.currentText())
 
     def _populate_result(self, result: AnalysisResult) -> None:
@@ -1237,9 +1372,183 @@ class PanelController:
         focus_hint = "double-click a row to focus it" if self.command is not None else "double-click a row to select it"
         self.mutation_summary.setText(f"{result.mutation_count} mutation event(s) · {focus_hint}")
         self.residue_summary.setText(f"{len(result.correspondences)} aligned positions · {result.mapped_residue_count} mapped Cα pairs")
+        self._fill_structure_result(result)
+        self._fill_results_history()
+        self._render_sequence_result(result)
+        self._render_selected_chart()
         self._fill_mutations(result)
         self._fill_residues(result)
         self._update_legend()
+
+    def _fill_structure_result(self, result: AnalysisResult) -> None:
+        self.structure_result_table.setRowCount(1)
+        values = (
+            result.reference_id,
+            result.target_id,
+            result.alignment_decision,
+            _number(result.strict_rmsd_angstrom),
+            _number(result.refined_rmsd_angstrom),
+            _number(result.tm_score),
+            str(result.mapped_residue_count),
+            str(len(result.excluded_alignment_indices)),
+            _backend_label(result),
+        )
+        for column, value in enumerate(values):
+            self.structure_result_table.setItem(0, column, self.w.QTableWidgetItem(value))
+        self.structure_result_summary.setText(
+            f"{result.reference_id} → {result.target_id} · decision={result.alignment_decision} · "
+            f"{result.mapped_residue_count} mapped residue pair(s); excluded positions remain explicit."
+        )
+
+    def _fill_results_history(self) -> None:
+        self.results_table.setRowCount(len(self._analysis_history))
+        for row, result in enumerate(self._analysis_history):
+            values = (
+                result.reference_id,
+                result.target_id,
+                result.alignment_decision,
+                f"{result.sequence_identity:.3f}",
+                f"{result.sequence_coverage:.3f}",
+                _number(result.strict_rmsd_angstrom),
+                _number(result.refined_rmsd_angstrom),
+                _number(result.tm_score),
+                str(result.mapped_residue_count),
+                str(result.mutation_count),
+            )
+            for column, value in enumerate(values):
+                self.results_table.setItem(row, column, self.w.QTableWidgetItem(value))
+        count = len(self._analysis_history)
+        self.results_history_status.setText(
+            f"{count} completed analysis result(s) · values are authoritative and descriptive; unavailable metrics remain —."
+            if count
+            else "No completed analyses yet. Results from each comparison will be retained here."
+        )
+
+    def _render_msa_chart(self, alignment: MultipleSequenceAlignment) -> None:
+        series = ChartSeries(
+            "Alignment conservation",
+            tuple((float(column.index + 1), column.conservation_score) for column in alignment.columns),
+            tuple(column.reference_label for column in alignment.columns),
+        )
+        self._msa_chart_dataset = ChartDataset(
+            "msa_conservation_profile",
+            "MSA conservation profile",
+            "Alignment column",
+            "Alignment conservation",
+            "fraction",
+            (series,),
+            "Authoritative alignment conservation; gaps and ambiguous residues are not amino-acid observations.",
+        )
+        self._render_dataset(
+            self._msa_chart_dataset,
+            self.sequence_chart_layout,
+            self.sequence_chart_status,
+            canvas_attribute="_sequence_chart_canvas",
+            unavailable_message="MSA chart data is available, but no renderer is installed.",
+        )
+
+    def _render_selected_chart(self) -> None:
+        label = self.chart_combo.currentText()
+        result = self.model.analysis
+        dataset: ChartDataset | MatrixDataset | None = None
+        if label == "Structural deviation profile" and result is not None:
+            dataset = structural_deviation_profile(result)
+        elif label == "MSA conservation profile":
+            dataset = self._chart_datasets.get(label) or self._msa_chart_dataset
+        else:
+            dataset = self._chart_datasets.get(label)
+        if dataset is None:
+            self.chart_preview_status.setText(
+                "Chart unavailable. Run the corresponding scientific service first."
+            )
+            self._clear_chart_layout(self.chart_preview_layout)
+            return
+        self._render_dataset(
+            dataset,
+            self.chart_preview_layout,
+            self.chart_preview_status,
+            canvas_attribute="_chart_canvas",
+            unavailable_message=(
+                "Authoritative chart data is ready; install the optional charts dependency (matplotlib) "
+                "to render the interactive preview."
+            ),
+        )
+
+    def _render_dataset(
+        self,
+        dataset: ChartDataset | MatrixDataset,
+        layout: Any,
+        status: Any,
+        *,
+        canvas_attribute: str,
+        unavailable_message: str,
+    ) -> None:
+        self._clear_chart_layout(layout)
+        try:
+            canvas_module = importlib.import_module("matplotlib.backends.backend_qtagg")
+            figure_module = importlib.import_module("matplotlib.figure")
+            canvas_class_name = "FigureCanvasQTAgg"
+            figure_class_name = "Figure"
+            FigureCanvasQTAgg = getattr(canvas_module, canvas_class_name)
+            Figure = getattr(figure_module, figure_class_name)
+        except ImportError:
+            setattr(self, canvas_attribute, None)
+            status.setText(f"{unavailable_message} Values remain available for XLSX/CSV export.")
+            return
+        figure = Figure(figsize=(7.0, 2.8), dpi=100, tight_layout=True)
+        axes = figure.add_subplot(111)
+        if isinstance(dataset, ChartDataset):
+            for series in dataset.series:
+                points = [(x, y) for x, y in series.points if y is not None]
+                if points:
+                    axes.plot(
+                        [point[0] for point in points],
+                        [point[1] for point in points],
+                        marker="o",
+                        linewidth=1.4,
+                        label=series.name,
+                    )
+            axes.set_xlabel(dataset.x_label)
+            axes.set_ylabel(dataset.y_label)
+            axes.set_title(dataset.title)
+            if len(dataset.series) > 1:
+                axes.legend()
+        else:
+            rows = list(dict.fromkeys(cell.row for cell in dataset.cells))
+            columns = list(dict.fromkeys(cell.column for cell in dataset.cells))
+            values = {(cell.row, cell.column): cell.value for cell in dataset.cells}
+            image = [
+                [float("nan") if values.get((row, column)) is None else float(values[(row, column)]) for column in columns]
+                for row in rows
+            ]
+            if image and columns:
+                axes.imshow(image, aspect="auto", interpolation="nearest", vmin=0.0, vmax=1.0)
+                axes.set_xticks(range(len(columns)), columns, rotation=45, ha="right")
+                axes.set_yticks(range(len(rows)), rows)
+            axes.set_xlabel(dataset.column_label)
+            axes.set_ylabel(dataset.row_label)
+            axes.set_title(dataset.title)
+        canvas = FigureCanvasQTAgg(figure)
+        layout.addWidget(canvas)
+        setattr(self, canvas_attribute, canvas)
+        status.setText(f"{dataset.title} · {dataset.interpretation}")
+
+    def _clear_chart_layout(self, layout: Any) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _render_sequence_result(self, result: AnalysisResult) -> None:
+        self._render_dataset(
+            mutation_conservation_matrix(result),
+            self.sequence_chart_layout,
+            self.sequence_chart_status,
+            canvas_attribute="_sequence_chart_canvas",
+            unavailable_message="Mutation/conservation chart unavailable for this result.",
+        )
 
     def _fill_mutations(self, result: AnalysisResult) -> None:
         self.mutation_table.setRowCount(0)
@@ -1324,7 +1633,7 @@ class PanelController:
                 () if self.target_object_name is not None else ((target_source,) if target_source else ())
             ),
             settings=self._settings(),
-            analysis_results=(result,) if result is not None else (),
+            analysis_results=(self._analysis_history or ((result,) if result is not None else ())),
             visualization_state=_state_dict(self._state_from_controls()),
             source_objects={
                 key: value
@@ -1349,6 +1658,7 @@ class PanelController:
         try:
             project = ProjectState.load(path)
             self._invalidate_analysis_views()
+            self._analysis_history = tuple(project.analysis_results)
             self._apply_project_settings(project.settings)
             self._set_combo_value(self.comparison_combo, project.comparison_mode.value)
             self._apply_visualization_payload(project.visualization_state)
@@ -1373,6 +1683,9 @@ class PanelController:
             if project.analysis_results:
                 self.model = self.model.with_analysis(project.analysis_results[-1])
                 self._populate_result(project.analysis_results[-1])
+                self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
+            else:
+                self._fill_results_history()
             self._set_status(f"Project opened · {Path(path).name}")
         except (OSError, ValueError, BundleValidationError) as exc:
             self._show_error(f"Could not open project: {exc}")
@@ -1646,18 +1959,23 @@ class PanelController:
         }
         self.chart_explanation.setText(explanations.get(label, "Charts consume the authoritative analysis state."))
         self._update_chart_export_state(label)
+        if hasattr(self, "chart_preview_status"):
+            self._render_selected_chart()
 
     def set_chart_datasets(self, datasets: Mapping[str, ChartDataset | MatrixDataset]) -> None:
         """Stage authoritative chart datasets for all v0.3 publication exports."""
 
         self._chart_datasets = dict(datasets)
         self._update_chart_export_state(self.chart_combo.currentText())
+        self._render_selected_chart()
 
     def _selected_chart_dataset(self, result: AnalysisResult) -> ChartDataset | MatrixDataset | None:
         label = self.chart_combo.currentText()
         if label == "Structural deviation profile":
             return structural_deviation_profile(result)
         dataset = self._chart_datasets.get(label)
+        if dataset is None and label == "MSA conservation profile":
+            dataset = self._msa_chart_dataset
         if dataset is None:
             self._show_error(
                 f"The {label} dataset is unavailable. Run its scientific service before exporting."
@@ -1674,6 +1992,37 @@ class PanelController:
             f"Site definition staged · mode={mode} · {len(positions)} reference position(s) · radius {self.site_radius_spin.value():.1f} Å. "
             "Run the site service to calculate coverage, RMSDs, SASA, and interaction fingerprints."
         )
+
+    def set_site_metrics(self, metrics: tuple[SiteMetrics, ...] | list[SiteMetrics]) -> None:
+        """Display metrics calculated by the site service without local recomputation."""
+
+        self._site_metrics = tuple(metrics)
+        self.site_metrics_table.setRowCount(len(self._site_metrics))
+        for row, item in enumerate(self._site_metrics):
+            values = (
+                item.site_id,
+                item.structure_id,
+                str(item.mapped_residue_count),
+                f"{item.coverage_fraction:.3f}",
+                _number(item.global_frame_backbone_rmsd_angstrom),
+                _number(item.site_fitted_backbone_rmsd_angstrom),
+                _number(item.centroid_displacement_angstrom),
+                _number(item.radius_of_gyration_angstrom),
+                _number(item.atomic_envelope_volume_angstrom3),
+                _number(item.sasa_angstrom2),
+                _fraction_number(item.polar_residue_fraction),
+                _fraction_number(item.charged_residue_fraction),
+            )
+            for column, value in enumerate(values):
+                self.site_metrics_table.setItem(row, column, self.w.QTableWidgetItem(value))
+        if self._site_metrics:
+            self.site_status_label.setText(
+                f"{len(self._site_metrics)} authoritative site metric record(s) loaded; units are explicit."
+            )
+        else:
+            self.site_status_label.setText(
+                "Site metrics appear after an analysis service run; this panel never estimates them locally."
+            )
 
     def _update_chart_export_state(self, label: str) -> None:
         """Keep export controls aligned with the chart profile they produce."""
@@ -1854,6 +2203,15 @@ def _residue_label(residue: ResidueId | None) -> str:
 
 def _number(value: float | int | None) -> str:
     return "—" if value is None else f"{value:.3f}" if isinstance(value, float) else str(value)
+
+
+def _fraction_number(value: float | None) -> str:
+    return "—" if value is None else f"{value:.3f}"
+
+
+def _backend_label(result: AnalysisResult) -> str:
+    backend = result.provenance.get("backend") or result.provenance.get("structural_backend")
+    return str(backend) if backend else "sequence-guided"
 
 
 def _human(value: str) -> str:
