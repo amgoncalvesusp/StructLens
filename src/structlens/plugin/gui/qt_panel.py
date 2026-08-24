@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -63,7 +63,9 @@ from .main_panel import SCIENTIFIC_SECTIONS, WORKFLOW_HELP, StructLensPanelModel
 from .qt_compat import QtBindings
 
 _RESIDUE_TOKEN = re.compile(r"^(?P<chain>[^:]+):(?P<number>-?\d+)(?P<insertion>[A-Za-z]?)$")
+_SEQUENCES_PAGE_INDEX = SCIENTIFIC_SECTIONS.index("Sequences")
 _STRUCTURES_PAGE_INDEX = SCIENTIFIC_SECTIONS.index("Structures")
+_CHARTS_PAGE_INDEX = SCIENTIFIC_SECTIONS.index("Charts")
 _ANALYSIS_EXECUTOR = ThreadPoolExecutor(
     max_workers=1, thread_name_prefix="structlens-analysis"
 )
@@ -541,6 +543,7 @@ class PanelController:
             self.sequence_chart_status.setText(
                 "Sequence conservation chart unavailable until an authoritative MSA or comparison result is present."
             )
+            self._update_chart_export_state(self.chart_combo.currentText())
             return
         self.msa_table.setRowCount(len(alignment.aligned_rows))
         for row_index, (structure_id, row) in enumerate(alignment.aligned_rows):
@@ -553,7 +556,9 @@ class PanelController:
             f"{sum(column.reference_residue is None for column in alignment.columns)} reference-relative insertion columns."
         )
         self._render_msa_chart(alignment)
+        self._update_chart_export_state(self.chart_combo.currentText())
         self._render_selected_chart()
+        self.nav.setCurrentRow(_SEQUENCES_PAGE_INDEX)
 
     # --------------------------------------------------------------- Residues
     def _build_residues_page(self) -> None:
@@ -1522,7 +1527,7 @@ class PanelController:
                 for row in rows
             ]
             if image and columns:
-                axes.imshow(image, aspect="auto", interpolation="nearest", vmin=0.0, vmax=1.0)
+                axes.imshow(image, **_matrix_image_kwargs(dataset, values.values()))
                 axes.set_xticks(range(len(columns)), columns, rotation=45, ha="right")
                 axes.set_yticks(range(len(rows)), rows)
             axes.set_xlabel(dataset.column_label)
@@ -1968,6 +1973,8 @@ class PanelController:
         self._chart_datasets = dict(datasets)
         self._update_chart_export_state(self.chart_combo.currentText())
         self._render_selected_chart()
+        if self._chart_datasets:
+            self.nav.setCurrentRow(_CHARTS_PAGE_INDEX)
 
     def _selected_chart_dataset(self, result: AnalysisResult) -> ChartDataset | MatrixDataset | None:
         label = self.chart_combo.currentText()
@@ -2027,7 +2034,11 @@ class PanelController:
     def _update_chart_export_state(self, label: str) -> None:
         """Keep export controls aligned with the chart profile they produce."""
 
-        supported = label == "Structural deviation profile" or label in self._chart_datasets
+        supported = (
+            label == "Structural deviation profile"
+            or label in self._chart_datasets
+            or (label == "MSA conservation profile" and self._msa_chart_dataset is not None)
+        )
         for button in self.chart_export_buttons:
             button.setEnabled(supported)
             if supported:
@@ -2144,6 +2155,46 @@ def _configure_table(table: Any, widgets: Any) -> None:
     table.verticalHeader().setVisible(False)
     table.horizontalHeader().setStretchLastSection(True)
     table.setMinimumHeight(220)
+
+
+def _matrix_image_kwargs(dataset: MatrixDataset, values: Iterable[float | None]) -> dict[str, Any]:
+    """Return display-only limits without changing matrix values.
+
+    Matrix datasets use different scientific scales.  Binary status matrices
+    may naturally span 0–1, while distance-difference matrices are signed
+    and should be centered at zero.  Omitting limits for empty or constant
+    data lets matplotlib choose a safe fallback without inventing a scale.
+    """
+
+    kwargs: dict[str, Any] = {"aspect": "auto", "interpolation": "nearest"}
+    numeric_values = tuple(float(value) for value in values if value is not None)
+    if not numeric_values:
+        return kwargs
+
+    minimum = min(numeric_values)
+    maximum = max(numeric_values)
+    descriptor = " ".join(
+        (
+            dataset.chart_id,
+            dataset.title,
+            dataset.row_label,
+            dataset.column_label,
+            dataset.interpretation,
+        )
+    ).casefold()
+    is_delta = (
+        "delta" in descriptor
+        or "Δ" in descriptor
+        or "distance difference" in descriptor
+        or "distance_difference" in descriptor
+    )
+    if is_delta:
+        bound = max(abs(minimum), abs(maximum))
+        if bound > 0.0:
+            kwargs.update(vmin=-bound, vmax=bound)
+    elif minimum < maximum:
+        kwargs.update(vmin=minimum, vmax=maximum)
+    return kwargs
 
 
 def _page_subtitle(section: str, *, standalone: bool = False) -> str:
