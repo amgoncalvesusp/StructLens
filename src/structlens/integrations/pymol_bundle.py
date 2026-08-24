@@ -41,6 +41,12 @@ def write_pymol_bundle(
     analysis: AnalysisResult | ReferenceVsManyAnalysis,
     provenance: Mapping[str, str] | None = None,
     visualization: Mapping[str, Any] | None = None,
+    msa_summary: Mapping[str, Any] | None = None,
+    conservation: Mapping[str, Any] | None = None,
+    interactions: Mapping[str, Any] | None = None,
+    sites: Mapping[str, Any] | None = None,
+    evidence: Mapping[str, Any] | None = None,
+    vectors: Mapping[str, Any] | None = None,
 ) -> Path:
     """Write and validate a deterministic, atomic analysis bundle."""
 
@@ -99,6 +105,15 @@ def write_pymol_bundle(
         "visualization/presets.json": _json_bytes(_default_presets()),
         **structure_entries,
     }
+    optional_payloads = {
+        "analysis/msa_summary.json": msa_summary,
+        "analysis/conservation.json": conservation,
+        "analysis/interactions.json": interactions,
+        "analysis/sites.json": sites,
+        "analysis/evidence.json": evidence,
+        "visualization/vectors.json": vectors,
+    }
+    files.update({name: _json_bytes(dict(payload)) for name, payload in optional_payloads.items() if payload is not None})
     _write_atomic(destination, files)
     validate_pymol_bundle(destination)
     return destination

@@ -39,10 +39,15 @@ class ProjectState:
     analysis_results: tuple[AnalysisResult, ...] = ()
     source_hashes: dict[str, str] = field(default_factory=dict)
     visualization_state: dict[str, Any] = field(default_factory=dict)
-    schema_version: str = "0.2"
+    schema_version: str = "3.0"
     source_objects: dict[str, str] = field(default_factory=dict)
     comparison_mode: ComparisonMode = ComparisonMode.PAIRWISE
     reference_vs_many: ReferenceVsManyAnalysis | None = None
+    msa_settings: dict[str, Any] = field(default_factory=dict)
+    interaction_thresholds: dict[str, float] = field(default_factory=dict)
+    site_definitions: tuple[dict[str, Any], ...] = ()
+    distance_difference_metadata: dict[str, Any] = field(default_factory=dict)
+    evidence_sources: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "target_sources", tuple(self.target_sources))
@@ -55,6 +60,11 @@ class ProjectState:
         object.__setattr__(
             self, "visualization_state", MappingProxyType(dict(self.visualization_state))
         )
+        object.__setattr__(self, "msa_settings", MappingProxyType(dict(self.msa_settings)))
+        object.__setattr__(self, "interaction_thresholds", MappingProxyType(dict(self.interaction_thresholds)))
+        object.__setattr__(self, "site_definitions", tuple(dict(item) for item in self.site_definitions))
+        object.__setattr__(self, "distance_difference_metadata", MappingProxyType(dict(self.distance_difference_metadata)))
+        object.__setattr__(self, "evidence_sources", MappingProxyType(dict(self.evidence_sources)))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +96,13 @@ class ProjectState:
                 if self.reference_vs_many is None
                 else _reference_vs_many_to_dict(self.reference_vs_many)
             ),
+            "v03": {
+                "msa_settings": dict(self.msa_settings),
+                "interaction_thresholds": dict(self.interaction_thresholds),
+                "site_definitions": [dict(item) for item in self.site_definitions],
+                "distance_difference_metadata": dict(self.distance_difference_metadata),
+                "evidence_sources": dict(self.evidence_sources),
+            },
         }
 
     def to_json(self, *, indent: int = 2) -> str:
@@ -96,7 +113,7 @@ class ProjectState:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> ProjectState:
-        if payload.get("schema_version") not in {"0.1", "0.2"}:
+        if payload.get("schema_version") not in {"0.1", "0.2", "3.0"}:
             raise ProjectSchemaError("Unsupported StructLens project schema version")
         settings_payload = payload.get("settings", {})
         settings = AnalysisSettings(
@@ -128,6 +145,9 @@ class ProjectState:
             _analysis_from_dict(item) for item in payload.get("analysis_results", [])
         )
         multi_payload = payload.get("reference_vs_many")
+        v03 = payload.get("v03", {})
+        if not isinstance(v03, dict):
+            raise ProjectSchemaError("v03 project payload must be an object")
         return cls(
             reference_source=payload.get("reference_source"),
             target_sources=tuple(payload.get("target_sources", [])),
@@ -136,12 +156,17 @@ class ProjectState:
             analysis_results=analyses,
             source_hashes=dict(payload.get("source_hashes", {})),
             visualization_state=dict(payload.get("visualization_state", {})),
-            schema_version=str(payload.get("schema_version", "0.2")),
+            schema_version=str(payload.get("schema_version", "3.0")),
             source_objects=dict(payload.get("source_objects", {})),
             comparison_mode=ComparisonMode(payload.get("comparison_mode", "pairwise")),
             reference_vs_many=(
                 None if multi_payload is None else _reference_vs_many_from_dict(multi_payload)
             ),
+            msa_settings=dict(v03.get("msa_settings", {})),
+            interaction_thresholds={str(key): float(value) for key, value in dict(v03.get("interaction_thresholds", {})).items()},
+            site_definitions=tuple(dict(item) for item in v03.get("site_definitions", [])),
+            distance_difference_metadata=dict(v03.get("distance_difference_metadata", {})),
+            evidence_sources=dict(v03.get("evidence_sources", {})),
         )
 
     @classmethod
@@ -165,34 +190,44 @@ class ProjectState:
             if item.target_id != analysis.target_id
         )
         return ProjectState(
-            self.reference_source,
-            self.target_sources,
-            self.settings,
-            self.key_residues,
-            retained + (analysis,),
-            self.source_hashes,
-            self.visualization_state,
-            self.schema_version,
-            self.source_objects,
-            self.comparison_mode,
-            self.reference_vs_many,
+            reference_source=self.reference_source,
+            target_sources=self.target_sources,
+            settings=self.settings,
+            key_residues=self.key_residues,
+            analysis_results=retained + (analysis,),
+            source_hashes=dict(self.source_hashes),
+            visualization_state=dict(self.visualization_state),
+            schema_version=self.schema_version,
+            source_objects=dict(self.source_objects),
+            comparison_mode=self.comparison_mode,
+            reference_vs_many=self.reference_vs_many,
+            msa_settings=dict(self.msa_settings),
+            interaction_thresholds=dict(self.interaction_thresholds),
+            site_definitions=self.site_definitions,
+            distance_difference_metadata=dict(self.distance_difference_metadata),
+            evidence_sources=dict(self.evidence_sources),
         )
 
     def with_key_residue(self, residue: ResidueId) -> ProjectState:
         if residue in self.key_residues:
             return self
         return ProjectState(
-            self.reference_source,
-            self.target_sources,
-            self.settings,
-            self.key_residues + (residue,),
-            self.analysis_results,
-            self.source_hashes,
-            self.visualization_state,
-            self.schema_version,
-            self.source_objects,
-            self.comparison_mode,
-            self.reference_vs_many,
+            reference_source=self.reference_source,
+            target_sources=self.target_sources,
+            settings=self.settings,
+            key_residues=self.key_residues + (residue,),
+            analysis_results=self.analysis_results,
+            source_hashes=dict(self.source_hashes),
+            visualization_state=dict(self.visualization_state),
+            schema_version=self.schema_version,
+            source_objects=dict(self.source_objects),
+            comparison_mode=self.comparison_mode,
+            reference_vs_many=self.reference_vs_many,
+            msa_settings=dict(self.msa_settings),
+            interaction_thresholds=dict(self.interaction_thresholds),
+            site_definitions=self.site_definitions,
+            distance_difference_metadata=dict(self.distance_difference_metadata),
+            evidence_sources=dict(self.evidence_sources),
         )
 
     def with_source_hashes(self) -> ProjectState:
@@ -207,17 +242,22 @@ class ProjectState:
             if Path(path).is_file()
         }
         return ProjectState(
-            self.reference_source,
-            self.target_sources,
-            self.settings,
-            self.key_residues,
-            self.analysis_results,
-            hashes,
-            self.visualization_state,
-            self.schema_version,
-            self.source_objects,
-            self.comparison_mode,
-            self.reference_vs_many,
+            reference_source=self.reference_source,
+            target_sources=self.target_sources,
+            settings=self.settings,
+            key_residues=self.key_residues,
+            analysis_results=self.analysis_results,
+            source_hashes=hashes,
+            visualization_state=dict(self.visualization_state),
+            schema_version=self.schema_version,
+            source_objects=dict(self.source_objects),
+            comparison_mode=self.comparison_mode,
+            reference_vs_many=self.reference_vs_many,
+            msa_settings=dict(self.msa_settings),
+            interaction_thresholds=dict(self.interaction_thresholds),
+            site_definitions=self.site_definitions,
+            distance_difference_metadata=dict(self.distance_difference_metadata),
+            evidence_sources=dict(self.evidence_sources),
         )
 
 

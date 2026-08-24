@@ -1,8 +1,11 @@
 # StructLens
 
-StructLens is an English-only desktop analysis application for integrated protein sequence and structure comparison. It keeps an explicit residue correspondence table, supports pairwise plus v0.2 multi-structure scientific models, calculates descriptive mutation and structural metrics, exports scientific chart data, and creates validated PyMOL interchange bundles.
+StructLens is an English-only desktop analysis application for integrated protein sequence and structure comparison. v0.3 adds bundled MSA/conservation, structural interactions, site geometry, distance-difference maps, displacement vectors, and Residue Evidence Cards while preserving an explicit residue correspondence table.
 
 Author: Adriano Marques Gonçalves (UNIARA)
+
+See [docs/v0.3.md](docs/v0.3.md) for the scientific methods, limitations,
+offline installation artifacts, reproducibility notes, and PyMOL plugin workflow.
 
 ## Installers and releases
 

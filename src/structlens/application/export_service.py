@@ -8,11 +8,17 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from PIL import Image
 
+from structlens.core.difference_maps import DistanceDifferenceMatrix
+from structlens.core.evidence import EvidenceCard
+from structlens.core.interactions import InteractionDifference
 from structlens.core.models import AnalysisResult
+from structlens.core.msa import MSAColumn
+from structlens.core.sites import SiteMetrics
 
 
 def export_analysis_xlsx(result: AnalysisResult, path: str | Path) -> None:
@@ -171,6 +177,89 @@ def export_publication_image(
         )
 
 
+def export_v03_xlsx(
+    path: str | Path,
+    *,
+    msa_columns: tuple[MSAColumn, ...] = (),
+    interaction_differences: tuple[InteractionDifference, ...] = (),
+    site_metrics: tuple[SiteMetrics, ...] = (),
+    distance_matrix: DistanceDifferenceMatrix | None = None,
+    evidence_cards: tuple[EvidenceCard, ...] = (),
+    provenance: tuple[str, ...] = (),
+) -> None:
+    """Export v0.3 scientific records without recalculating any metric."""
+    workbook = Workbook()
+    default = workbook.active
+    if default is None:
+        raise RuntimeError("Workbook did not create a worksheet")
+    workbook.remove(default)
+
+    msa = workbook.create_sheet("MSA")
+    msa.append(["Alignment column", "Reference label", "Reference residue", "Non-gap count", "Gap fraction", "Ambiguous fraction", "Conservation", "Entropy (bits)"])
+    for column in msa_columns:
+        msa.append([column.index, column.reference_label, _residue_label(column.reference_residue), column.non_gap_count, column.gap_fraction, column.ambiguous_fraction, column.conservation_score, column.entropy_bits])
+
+    conservation = workbook.create_sheet("Conservation")
+    conservation.append(["Alignment column", "Reference label", "Conservation", "Gap fraction", "Ambiguous fraction", "Units"])
+    for column in msa_columns:
+        conservation.append([column.index, column.reference_label, column.conservation_score, column.gap_fraction, column.ambiguous_fraction, "fraction"])
+
+    frequencies = workbook.create_sheet("Amino Acid Frequencies")
+    frequencies.append(["Alignment column", "Reference label", *tuple("ACDEFGHIKLMNPQRSTVWY")])
+    for column in msa_columns:
+        counts = {letter: 0 for letter in "ACDEFGHIKLMNPQRSTVWY"}
+        valid = 0
+        for cell in column.cells:
+            if cell.character.upper() in counts:
+                counts[cell.character.upper()] += 1
+                valid += 1
+        frequencies.append([column.index, column.reference_label, *(counts[letter] / valid if valid else None for letter in counts)])
+
+    interactions = workbook.create_sheet("Interaction Differences")
+    interactions.append(["Type", "Reference position A", "Reference position B", "Change", "Reference distance (Å)", "Target distance (Å)", "Evidence mode"])
+    for difference in interaction_differences:
+        record = difference.target_record if difference.target_record is not None else difference.reference_record
+        interactions.append([difference.key.interaction_type.value, difference.key.reference_position_a, difference.key.reference_position_b, difference.change.value, difference.reference_record.distance_angstrom if difference.reference_record else None, difference.target_record.distance_angstrom if difference.target_record else None, record.evidence_mode if record is not None else None])
+
+    sites = workbook.create_sheet("Sites")
+    sites.append(["Site", "Structure", "Mapped residues", "Coverage", "Global-frame RMSD (Å)", "Site-fitted RMSD (Å)", "SASA (Å²)", "Atomic envelope volume (Å³)"])
+    for metric in site_metrics:
+        sites.append([metric.site_id, metric.structure_id, metric.mapped_residue_count, metric.coverage_fraction, metric.global_frame_backbone_rmsd_angstrom, metric.site_fitted_backbone_rmsd_angstrom, metric.sasa_angstrom2, metric.atomic_envelope_volume_angstrom3])
+
+    fingerprints = workbook.create_sheet("Site Metrics")
+    fingerprints.append(["Site", "Structure", "Centroid displacement (Å)", "Radius of gyration (Å)", "Polar fraction", "Charged fraction"])
+    for metric in site_metrics:
+        fingerprints.append([metric.site_id, metric.structure_id, metric.centroid_displacement_angstrom, metric.radius_of_gyration_angstrom, metric.polar_residue_fraction, metric.charged_residue_fraction])
+
+    if distance_matrix is not None:
+        distances = workbook.create_sheet("Distance Difference Matrix")
+        delta = np.asarray(distance_matrix.delta_angstrom, dtype=np.float64)
+        valid_mask = np.asarray(distance_matrix.valid_mask, dtype=bool)
+        distances.append(["Reference position", *distance_matrix.reference_positions])
+        for index, label in enumerate(distance_matrix.reference_positions):
+            distances.append([label, *[float(value) if valid_mask[index, column] else None for column, value in enumerate(delta[index])]])
+
+    evidence = workbook.create_sheet("Residue Evidence")
+    evidence.append(["Reference residue", "Target", "Evidence quality", "Sequence conservation", "Cα displacement (Å)", "Global site RMSD (Å)", "Site-fitted RMSD (Å)"])
+    for card in evidence_cards:
+        metrics = card.site.metrics[0] if card.site.metrics else None
+        evidence.append([_residue_label(card.reference_residue), card.target_id, card.quality.overall_status, card.sequence.conservation_fraction, card.structure.ca_displacement_angstrom, metrics.global_frame_backbone_rmsd_angstrom if metrics else None, metrics.site_fitted_backbone_rmsd_angstrom if metrics else None])
+
+    quality = workbook.create_sheet("Evidence Quality")
+    quality.append(["Reference residue", "Target", "Status", "Available sections", "Unavailable sections", "Warnings"])
+    for card in evidence_cards:
+        quality.append([_residue_label(card.reference_residue), card.target_id, card.quality.overall_status, ", ".join(card.quality.available_sections), ", ".join(card.quality.unavailable_sections), "; ".join(card.quality.warnings)])
+
+    provenance_sheet = workbook.create_sheet("Provenance")
+    provenance_sheet.append(["Source"])
+    for item in provenance:
+        provenance_sheet.append([item])
+    for sheet in workbook.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+    workbook.save(path)
+
+
 def _residue_label(residue: Any) -> str:
     if residue is None:
         return ""
@@ -183,4 +272,5 @@ __all__ = [
     "export_analysis_json",
     "export_analysis_xlsx",
     "export_publication_image",
+    "export_v03_xlsx",
 ]

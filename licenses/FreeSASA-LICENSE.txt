@@ -1,0 +1,2 @@
+FreeSASA is redistributed under its MIT license. The full upstream license
+text is copied into release bundles by CI.

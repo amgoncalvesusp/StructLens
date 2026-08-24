@@ -28,7 +28,17 @@ jobs:
       - name: Build wheel and standalone CLI
         shell: bash
         run: |
-          python -m pip install --upgrade pip build pyinstaller
+          python -m pip install --upgrade pip build pyinstaller "freesasa>=2.2.1"
+          python scripts/fetch_backends.py --platform Windows
+          choco install mingw --no-progress --yes
+          git clone --depth 1 https://github.com/pylelab/USalign.git build/usalign-src
+          git -C build/usalign-src fetch --depth 1 origin fa4376bd99fa17a123d05d7ea47cf6574c80d64f
+          git -C build/usalign-src checkout fa4376bd99fa17a123d05d7ea47cf6574c80d64f
+          mkdir -p src/structlens/resources/usalign/windows-x64
+          g++ -O3 -static -o src/structlens/resources/usalign/windows-x64/USalign.exe build/usalign-src/USalign.cpp
+          cp build/usalign-src/LICENSE src/structlens/resources/usalign/LICENSE
+          printf 'pylelab/USalign pinned source\n' > src/structlens/resources/usalign/VERSION
+          python scripts/verify_release_backends.py --platform windows
           python -m build --wheel
           python -m pip install .
           python scripts/build_icon.py
@@ -40,6 +50,7 @@ jobs:
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
+            --collect-all freesasa \
             src/structlens/cli/main.py
           python -m pip install ".[gui]"
           python -m PyInstaller \
@@ -51,6 +62,7 @@ jobs:
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
+            --collect-all freesasa \
             --exclude-module PySide6 \
             --hidden-import PyQt5.QtCore \
             --hidden-import PyQt5.QtGui \
@@ -68,13 +80,14 @@ jobs:
           $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
           if ("${{ github.ref_name }}" -match '^v') { $version = "${{ github.ref_name }}" -replace '^v', '' }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging/windows/structlens.iss
+          Get-FileHash "release/StructLens-v$version-Windows-x86_64-Setup.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content "release/StructLens-v$version-Windows-x86_64-Setup.exe.sha256"
 
       - name: Upload Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: StructLens-windows-setup
           path: |
-            release/StructLens-Setup.exe
+            release/StructLens-v*-Windows-x86_64-Setup.exe*
             dist/structlens-*.whl
 
   build-linux:
@@ -92,7 +105,18 @@ jobs:
       - name: Build wheel and standalone CLI
         shell: bash
         run: |
-          python -m pip install --upgrade pip build pyinstaller
+          python -m pip install --upgrade pip build pyinstaller "freesasa>=2.2.1"
+          python scripts/fetch_backends.py --platform Linux
+          sudo apt-get update
+          sudo apt-get install -y g++ dpkg fuse3
+          git clone --depth 1 https://github.com/pylelab/USalign.git build/usalign-src
+          git -C build/usalign-src fetch --depth 1 origin fa4376bd99fa17a123d05d7ea47cf6574c80d64f
+          git -C build/usalign-src checkout fa4376bd99fa17a123d05d7ea47cf6574c80d64f
+          mkdir -p src/structlens/resources/usalign/linux-x64
+          g++ -O3 -static -o src/structlens/resources/usalign/linux-x64/USalign build/usalign-src/USalign.cpp
+          cp build/usalign-src/LICENSE src/structlens/resources/usalign/LICENSE
+          printf 'pylelab/USalign pinned source\n' > src/structlens/resources/usalign/VERSION
+          python scripts/verify_release_backends.py --platform linux
           python -m build --wheel
           python -m pip install .
           python scripts/build_icon.py
@@ -104,6 +128,7 @@ jobs:
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
+            --collect-all freesasa \
             src/structlens/cli/main.py
           python -m pip install ".[gui]"
           python -m PyInstaller \
@@ -115,6 +140,7 @@ jobs:
             --paths src \
             --collect-all structlens \
             --collect-data Bio \
+            --collect-all freesasa \
             --exclude-module PySide6 \
             --hidden-import PyQt5.QtCore \
             --hidden-import PyQt5.QtGui \
@@ -122,56 +148,20 @@ jobs:
             src/structlens/gui/main.py
           ./dist/structlens --help
 
-      - name: Assemble Debian setup package
+      - name: Assemble Debian and AppImage setup packages
         shell: bash
         run: |
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           if [[ "$GITHUB_REF_NAME" == v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
-          package_root="build/deb"
-          mkdir -p "$package_root/DEBIAN" "$package_root/usr/bin" \
-            "$package_root/usr/lib" \
-            "$package_root/usr/share/structlens" "$package_root/usr/share/applications" \
-            "$package_root/usr/share/icons/hicolor/256x256/apps"
-          cp dist/structlens "$package_root/usr/bin/structlens"
-          cp -R dist/StructLens "$package_root/usr/lib/structlens-gui"
-          cp src/structlens/plugin/assets/structlens_icon.png \
-            "$package_root/usr/share/structlens/structlens_icon.png"
-          cp dist/structlens-*.whl packaging/linux/install-structlens.sh README.md LICENSE \
-            "$package_root/usr/share/structlens/"
-          cp src/structlens/plugin/assets/structlens_icon.png \
-            "$package_root/usr/share/icons/hicolor/256x256/apps/structlens.png"
-          chmod 0755 "$package_root/usr/bin/structlens" "$package_root/usr/lib/structlens-gui/StructLens" \
-            "$package_root/usr/share/structlens/install-structlens.sh"
-          cat > "$package_root/DEBIAN/control" <<EOF
-          Package: structlens
-          Version: ${version}
-          Section: science
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Adriano Marques Gonçalves (UNIARA)
-          Depends: libc6
-          Description: Integrated protein sequence and structure comparison
-           StructLens provides sequence/structure comparison, mutation evidence, charts, and PyMOL bundle export.
-          EOF
-          cat > "$package_root/usr/share/applications/structlens.desktop" <<EOF
-          [Desktop Entry]
-          Type=Application
-          Name=StructLens
-          Comment=Integrated protein sequence and structure comparison
-          Exec=/usr/lib/structlens-gui/StructLens
-          Icon=structlens
-          Terminal=false
-          Categories=Science;Education;
-          EOF
-          mkdir -p release
-          dpkg-deb --build --root-owner-group "$package_root" "release/StructLens-Setup.deb"
+          bash packaging/linux/build_packages.sh "$version" "$PWD/dist"
 
       - name: Upload Linux setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: StructLens-linux-setup
           path: |
-            release/StructLens-Setup.deb
+            release/structlens_*.deb*
+            release/StructLens-v*-Linux-x86_64.AppImage*
 
   release:
     name: Publish GitHub release
@@ -192,5 +182,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p release-assets
-          find release -type f \( -name 'StructLens-Setup.exe' -o -name 'StructLens-Setup.deb' -o -name 'structlens-*.whl' \) -exec cp {} release-assets/ \;
+          find release -type f \( -name 'StructLens-v*-Windows-x86_64-Setup.exe' -o -name 'StructLens-v*-Windows-x86_64-Setup.exe.sha256' -o -name 'structlens_*.deb' -o -name 'structlens_*.deb.sha256' -o -name 'StructLens-v*-Linux-x86_64.AppImage' -o -name 'StructLens-v*-Linux-x86_64.AppImage.sha256' \) -exec cp {} release-assets/ \;
           gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "StructLens ${GITHUB_REF_NAME}" --generate-notes
