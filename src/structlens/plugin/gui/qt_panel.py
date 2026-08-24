@@ -1347,6 +1347,9 @@ class PanelController:
         self.model = replace(self.model, analysis=None)
         self._v03_export_records = {}
         self._chart_datasets = {}
+        self.result_decision.setText("No comparison yet.")
+        for value in self.result_labels.values():
+            value.setText("—")
         self.set_msa_result(None)
         self.set_v03_bundle_payloads()
         self.mutation_table.setRowCount(0)
