@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -1093,7 +1093,7 @@ class PanelController:
             names = {str(name) for name in get_names("objects")} if get_names is not None else set()
             if object_name not in names:
                 load(str(path), object_name)
-            return object_name
+            return str(object_name)
         except Exception:
             return None
 
@@ -1528,10 +1528,13 @@ class PanelController:
             rows = list(dict.fromkeys(cell.row for cell in dataset.cells))
             columns = list(dict.fromkeys(cell.column for cell in dataset.cells))
             values = {(cell.row, cell.column): cell.value for cell in dataset.cells}
-            image = [
-                [float("nan") if values.get((row, column)) is None else float(values[(row, column)]) for column in columns]
-                for row in rows
-            ]
+            image: list[list[float]] = []
+            for row in rows:
+                image_row: list[float] = []
+                for column in columns:
+                    value = values.get((row, column))
+                    image_row.append(float("nan") if value is None else float(value))
+                image.append(image_row)
             if image and columns:
                 axes.imshow(image, **_matrix_image_kwargs(dataset, values.values()))
                 axes.set_xticks(range(len(columns)), columns, rotation=45, ha="right")
@@ -2341,14 +2344,14 @@ def _residue_label(residue: ResidueId | None) -> str:
     return f"{residue.chain_id}:{residue.auth_seq_id}{insertion} {residue.residue_name}"
 
 
-def _homogeneous_transform(transform: Any) -> np.ndarray | None:
+def _homogeneous_transform(transform: Any) -> np.ndarray[Any, Any] | None:
     """Transport one authoritative StructuralTransform to the site service."""
 
     if transform is None:
         return None
-    matrix = np.eye(4, dtype=np.float64)
-    matrix[:3, :3] = np.asarray(transform.rotation, dtype=np.float64)
-    matrix[:3, 3] = np.asarray(transform.translation, dtype=np.float64)
+    matrix = cast(np.ndarray[Any, Any], np.eye(4, dtype=np.float64))
+    matrix[:3, :3] = cast(np.ndarray[Any, Any], np.asarray(transform.rotation, dtype=np.float64))
+    matrix[:3, 3] = cast(np.ndarray[Any, Any], np.asarray(transform.translation, dtype=np.float64))
     return matrix
 
 
