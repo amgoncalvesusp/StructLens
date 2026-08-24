@@ -12,6 +12,9 @@ from tempfile import NamedTemporaryFile
 from threading import Event
 from typing import Any
 
+import numpy as np
+
+from structlens.application import site_service
 from structlens.application.analysis_service import AnalysisService
 from structlens.application.chart_data import (
     ChartDataset,
@@ -40,7 +43,7 @@ from structlens.core.models import (
 )
 from structlens.core.msa import MultipleSequenceAlignment
 from structlens.core.parsing import load_structure
-from structlens.core.sites import SiteMetrics
+from structlens.core.sites import SiteDefinition, SiteDefinitionMode, SiteMetrics
 from structlens.integrations.pymol.adapter import PyMOLAdapter
 from structlens.integrations.pymol.launcher import PyMOLLauncher
 from structlens.integrations.pymol.selections import selection_name
@@ -1995,10 +1998,93 @@ class PanelController:
         if mode == "key_residues" and not positions:
             self._show_error("Key-residue sites need at least one reference position.")
             return
-        self.site_status_label.setText(
-            f"Site definition staged · mode={mode} · {len(positions)} reference position(s) · radius {self.site_radius_spin.value():.1f} Å. "
-            "Run the site service to calculate coverage, RMSDs, SASA, and interaction fingerprints."
+        reference = self._selected_chain(self.reference_structure, self.reference_chain_combo)
+        target = self._selected_chain(self.target_structure, self.target_chain_combo)
+        result = self.model.analysis
+        if reference is None or target is None:
+            self._site_unavailable("Load a reference and target chain before defining a site.")
+            return
+        if result is None:
+            self._site_unavailable("Run a structure comparison before calculating site metrics.")
+            return
+        reference_records = tuple(reference.residue_records)
+        target_records = tuple(target.residue_records)
+        if not reference_records or not target_records:
+            self._site_unavailable(
+                "Site metrics require residue records with coordinates for both selected chains."
+            )
+            return
+
+        reference_residues = tuple(
+            residue
+            for position in positions
+            if (residue := _find_residue(reference, position)) is not None
         )
+        if mode == "key_residues" and len(reference_residues) != len(positions):
+            self._site_unavailable(
+                "One or more key positions are not present in the selected reference chain."
+            )
+            return
+
+        mode_enum = SiteDefinitionMode(mode)
+        if mode_enum is SiteDefinitionMode.LIGAND_RADIUS:
+            self._site_unavailable(
+                "Ligand-radius site metrics are unavailable until ligand atoms are supplied by the source."
+            )
+            return
+        center_residue = reference_residues[0] if mode_enum is SiteDefinitionMode.RESIDUE_RADIUS and reference_residues else None
+        if mode_enum is SiteDefinitionMode.RESIDUE_RADIUS and center_residue is None:
+            self._site_unavailable(
+                "Residue-radius sites require one reference center position, for example A:166."
+            )
+            return
+        try:
+            definition = SiteDefinition(
+                "panel-site",
+                name="Panel site",
+                mode=mode_enum,
+                reference_residues=reference_residues,
+                center_residue=center_residue,
+                radius_angstrom=(
+                    None if mode_enum is SiteDefinitionMode.KEY_RESIDUES else float(self.site_radius_spin.value())
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            self._site_unavailable(f"Invalid site definition: {exc}")
+            return
+
+        correspondence = {
+            item.reference: item.target
+            for item in result.correspondences
+            if item.reference is not None and item.target is not None
+        }
+        target_transform = _homogeneous_transform(result.transform)
+        try:
+            metrics = site_service.calculate_site_metrics(
+                definition,
+                reference_records,
+                target_records,
+                correspondence,
+                target_structure_id=target.structure_id,
+                target_transform=target_transform,
+            )
+        except (TypeError, ValueError, RuntimeError) as exc:
+            self._site_unavailable(f"Site metrics could not be calculated: {exc}")
+            return
+        self.set_site_metrics((metrics,))
+        self.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sites"))
+        self.site_status_label.setText(
+            f"Site analysis complete · {metrics.mapped_residue_count} mapped residue(s) · "
+            "metrics are authoritative and descriptive."
+        )
+
+    def _site_unavailable(self, message: str) -> None:
+        """Keep site absence explicit instead of presenting fabricated zeros."""
+
+        self.set_site_metrics(())
+        self.site_status_label.setText(f"Unavailable · {message}")
+        self.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sites"))
+        self._show_error(message)
 
     def set_site_metrics(self, metrics: tuple[SiteMetrics, ...] | list[SiteMetrics]) -> None:
         """Display metrics calculated by the site service without local recomputation."""
@@ -2250,6 +2336,17 @@ def _residue_label(residue: ResidueId | None) -> str:
         return "—"
     insertion = residue.insertion_code or ""
     return f"{residue.chain_id}:{residue.auth_seq_id}{insertion} {residue.residue_name}"
+
+
+def _homogeneous_transform(transform: Any) -> np.ndarray | None:
+    """Transport one authoritative StructuralTransform to the site service."""
+
+    if transform is None:
+        return None
+    matrix = np.eye(4, dtype=np.float64)
+    matrix[:3, :3] = np.asarray(transform.rotation, dtype=np.float64)
+    matrix[:3, 3] = np.asarray(transform.translation, dtype=np.float64)
+    return matrix
 
 
 def _number(value: float | int | None) -> str:
