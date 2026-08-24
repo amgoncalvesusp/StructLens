@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Literal
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Literal, Protocol
 
 from structlens.core.models import ResidueId
 
@@ -167,4 +168,42 @@ class MSAColumn:
         return self.index
 
 
-__all__ = ["AnalysisSequence", "MSAColumn", "MSAResidueCell", "MSASource", "SequenceResidueRef"]
+@dataclass(frozen=True, slots=True)
+class MSASettings:
+    """Reproducible settings for a multiple-sequence alignment run."""
+
+    algorithm: str = "muscle5"
+    mode: str = "align"
+
+
+@dataclass(frozen=True, slots=True)
+class MultipleSequenceAlignment:
+    """Rows and reference-aware columns produced by an alignment engine."""
+
+    sequences: tuple[AnalysisSequence, ...]
+    aligned_rows: tuple[tuple[str, str], ...]
+    columns: tuple[MSAColumn, ...]
+    reference_structure_id: str | None = None
+    algorithm: str = "fallback"
+    provenance: tuple[str, ...] = field(default_factory=tuple)
+
+
+class MultipleSequenceAlignmentEngine(Protocol):
+    def align(
+        self,
+        sequences: Sequence[AnalysisSequence],
+        settings: MSASettings,
+    ) -> MultipleSequenceAlignment:
+        ...
+
+
+__all__ = [
+    "AnalysisSequence",
+    "MSAColumn",
+    "MSAResidueCell",
+    "MSASettings",
+    "MSASource",
+    "MultipleSequenceAlignment",
+    "MultipleSequenceAlignmentEngine",
+    "SequenceResidueRef",
+]

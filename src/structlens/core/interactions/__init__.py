@@ -111,6 +111,23 @@ class InteractionDifference:
 
 InteractionKey = ReferenceInteractionKey
 
+from .chemistry import (  # noqa: E402
+    ACCEPTOR_ATOMS,
+    AROMATIC_RESIDUES,
+    CATIONIC_RESIDUES,
+    CHARGED_RESIDUES,
+    DONOR_ATOMS,
+    METAL_ELEMENTS,
+    atom_is_acceptor,
+    atom_is_donor,
+    residue_is_aromatic,
+    residue_is_cationic,
+    residue_is_hydrophobic,
+)
+from .comparison import compare_interactions  # noqa: E402
+from .detector import detect_interactions  # noqa: E402
+from .thresholds import InteractionThresholds  # noqa: E402
+
 __all__ = [
     "InteractionChange",
     "InteractionChangeKind",
@@ -121,4 +138,18 @@ __all__ = [
     "InteractionType",
     "ReferenceInteractionKey",
     "InteractionKey",
+    "InteractionThresholds",
+    "detect_interactions",
+    "compare_interactions",
+    "ACCEPTOR_ATOMS",
+    "AROMATIC_RESIDUES",
+    "CATIONIC_RESIDUES",
+    "CHARGED_RESIDUES",
+    "DONOR_ATOMS",
+    "METAL_ELEMENTS",
+    "atom_is_acceptor",
+    "atom_is_donor",
+    "residue_is_aromatic",
+    "residue_is_cationic",
+    "residue_is_hydrophobic",
 ]

@@ -23,7 +23,15 @@ from .interactions import (
     InteractionType,
     ReferenceInteractionKey,
 )
-from .msa import AnalysisSequence, MSAColumn, MSAResidueCell, SequenceResidueRef
+from .msa import (
+    AnalysisSequence,
+    MSAColumn,
+    MSAResidueCell,
+    MSASettings,
+    MultipleSequenceAlignment,
+    MultipleSequenceAlignmentEngine,
+    SequenceResidueRef,
+)
 from .sites import SiteDefinition, SiteDefinitionKind, SiteDefinitionMode, SiteMetrics, SiteType
 
 __all__ = [
@@ -45,6 +53,9 @@ __all__ = [
     "ReferenceInteractionKey",
     "MSAColumn",
     "MSAResidueCell",
+    "MSASettings",
+    "MultipleSequenceAlignment",
+    "MultipleSequenceAlignmentEngine",
     "ResidueEvidenceCard",
     "SequenceEvidence",
     "SequenceResidueRef",
