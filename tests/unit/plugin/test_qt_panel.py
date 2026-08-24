@@ -8,9 +8,21 @@ qt_widgets = pytest.importorskip("PySide6.QtWidgets")
 
 from structlens.application.chart_data import ChartDataset, ChartSeries  # noqa: E402
 from structlens.application.msa_service import align_sequences  # noqa: E402
-from structlens.core.models import AnalysisResult, ResidueId  # noqa: E402
+from structlens.core.models import (  # noqa: E402
+    AnalysisResult,
+    AtomRecord,
+    CorrespondenceStatus,
+    ProteinChain,
+    ProteinStructure,
+    ResidueCorrespondence,
+    ResidueId,
+    ResidueNumbering,
+    ResidueRecord,
+    StructuralTransform,
+)
 from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef  # noqa: E402
 from structlens.core.sites import SiteMetrics  # noqa: E402
+from structlens.plugin.gui import qt_panel  # noqa: E402
 from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
 from structlens.plugin.gui.qt_panel import _matrix_image_kwargs  # noqa: E402
 
@@ -205,6 +217,90 @@ def test_sites_and_charts_show_authoritative_result_areas(application) -> None:
     controller.set_chart_datasets({"MSA conservation profile": dataset})
     controller.chart_combo.setCurrentText("MSA conservation profile")
     assert controller.chart_preview_status.text() != "Chart unavailable. Run the corresponding scientific service first."
+    controller.close()
+    panel.deleteLater()
+
+
+def test_key_residue_site_runs_authoritative_service_and_navigates_to_sites(
+    application, monkeypatch
+) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+
+    reference_id = ResidueId("reference", "1", "A", "1", None, "ALA")
+    target_id = ResidueId("target", "1", "A", "1", None, "VAL")
+    reference_record = ResidueRecord(
+        reference_id,
+        ResidueNumbering("1", "1", None),
+        "ALA",
+        "A",
+        (AtomRecord("CA", "C", (0.0, 0.0, 0.0)),),
+    )
+    target_record = ResidueRecord(
+        target_id,
+        ResidueNumbering("1", "1", None),
+        "VAL",
+        "V",
+        (AtomRecord("CA", "C", (1.0, 0.0, 0.0)),),
+    )
+    reference_chain = ProteinChain(
+        "reference", "1", "A", (reference_id,), "A", (reference_record,)
+    )
+    target_chain = ProteinChain("target", "1", "A", (target_id,), "V", (target_record,))
+    controller.reference_structure = ProteinStructure("reference", (reference_chain,))
+    controller.target_structure = ProteinStructure("target", (target_chain,))
+    controller._populate_chains(controller.reference_chain_combo, controller.reference_structure)
+    controller._populate_chains(controller.target_chain_combo, controller.target_structure)
+    controller.model = controller.model.with_analysis(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(
+                ResidueCorrespondence(
+                    0,
+                    reference_id,
+                    target_id,
+                    "A",
+                    "V",
+                    CorrespondenceStatus.SUBSTITUTION,
+                ),
+            ),
+            mutations=(),
+            sequence_identity=0.0,
+            sequence_coverage=1.0,
+            alignment_decision="accepted",
+            transform=StructuralTransform(
+                translation=(0.5, 0.0, 0.0),
+            ),
+        )
+    )
+    controller.site_residues_edit.setText("A:1")
+    calls: dict[str, object] = {}
+
+    def fake_calculate_site_metrics(definition, reference_residues, target_residues, correspondence, **kwargs):
+        calls["definition"] = definition
+        calls["reference_residues"] = tuple(reference_residues)
+        calls["target_residues"] = tuple(target_residues)
+        calls["correspondence"] = dict(correspondence)
+        calls["kwargs"] = kwargs
+        return SiteMetrics("panel-site", "target", 1, 1.0)
+
+    monkeypatch.setattr(qt_panel.site_service, "calculate_site_metrics", fake_calculate_site_metrics)
+    controller._define_site_from_controls()
+
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Sites")
+    assert controller.site_metrics_table.rowCount() == 1
+    definition = calls["definition"]
+    assert definition.site_id == "panel-site"
+    assert definition.mode.value == "key_residues"
+    assert definition.reference_residues == (reference_id,)
+    assert calls["reference_residues"] == (reference_record,)
+    assert calls["target_residues"] == (target_record,)
+    assert calls["correspondence"] == {reference_id: target_id}
+    transform = calls["kwargs"]["target_transform"]
+    assert transform.shape == (4, 4)
+    assert transform[0, 3] == 0.5
+
     controller.close()
     panel.deleteLater()
 
