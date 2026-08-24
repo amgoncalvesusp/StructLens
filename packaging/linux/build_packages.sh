@@ -67,5 +67,5 @@ else
   APPIMAGETOOL="$(command -v appimagetool)"
 fi
 ARCH=x86_64 "$APPIMAGETOOL" "$APPDIR" "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage"
-sha256sum "$ROOT/release/structlens_${VERSION}_amd64.deb" > "$ROOT/release/structlens_${VERSION}_amd64.deb.sha256"
-sha256sum "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage" > "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage.sha256"
+(cd "$ROOT/release" && sha256sum "structlens_${VERSION}_amd64.deb") > "$ROOT/release/structlens_${VERSION}_amd64.deb.sha256"
+(cd "$ROOT/release" && sha256sum "StructLens-v${VERSION}-Linux-x86_64.AppImage") > "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage.sha256"
