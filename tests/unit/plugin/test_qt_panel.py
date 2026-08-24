@@ -6,6 +6,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt_widgets = pytest.importorskip("PySide6.QtWidgets")
 
+from structlens.application.chart_data import ChartDataset, ChartSeries  # noqa: E402
 from structlens.application.msa_service import align_sequences  # noqa: E402
 from structlens.core.models import AnalysisResult, ResidueId  # noqa: E402
 from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef  # noqa: E402
@@ -170,6 +171,42 @@ def test_v03_xlsx_export_routes_staged_records(application, monkeypatch, tmp_pat
     )
     controller._export_xlsx()
     assert called == {"path": str(output), "provenance": ("fixture",)}
+    controller.close()
+    panel.deleteLater()
+
+
+def test_chart_exports_route_staged_v03_dataset(application, monkeypatch, tmp_path: Path) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    controller.model = controller.model.with_analysis(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=1.0,
+            alignment_decision="test",
+        )
+    )
+    dataset = ChartDataset(
+        "msa_conservation",
+        "MSA conservation",
+        "Alignment column",
+        "Conservation",
+        "fraction",
+        (ChartSeries("reference", ((1.0, 1.0),)),),
+        "Descriptive alignment conservation.",
+    )
+    controller.set_chart_datasets({"MSA conservation profile": dataset})
+    controller.chart_combo.setCurrentText("MSA conservation profile")
+    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+    output = tmp_path / "chart.xlsx"
+    monkeypatch.setattr(controller.w.QFileDialog, "getSaveFileName", lambda *_args: (str(output), "XLSX (*.xlsx)"))
+    captured: dict[str, object] = {}
+    monkeypatch.setattr("structlens.plugin.gui.qt_panel.export_chart_xlsx", lambda value, path: captured.update(value=value, path=path))
+    controller._export_chart_xlsx()
+    assert captured["value"] == dataset
     controller.close()
     panel.deleteLater()
 

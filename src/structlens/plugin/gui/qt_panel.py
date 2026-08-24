@@ -11,7 +11,7 @@ from threading import Event
 from typing import Any
 
 from structlens.application.analysis_service import AnalysisService
-from structlens.application.chart_data import structural_deviation_profile
+from structlens.application.chart_data import ChartDataset, MatrixDataset, structural_deviation_profile
 from structlens.application.chart_export import export_chart_image, export_chart_xlsx
 from structlens.application.export_service import (
     export_analysis_csv,
@@ -122,6 +122,7 @@ class PanelController:
             "vectors": None,
         }
         self._v03_export_records: dict[str, Any] = {}
+        self._chart_datasets: dict[str, ChartDataset | MatrixDataset] = {}
         self._build_shell()
         self._build_project_page()
         self._build_mutations_page()
@@ -1536,8 +1537,8 @@ class PanelController:
         if result is None:
             self._show_error("Run a comparison before exporting chart data.")
             return
-        if self.chart_combo.currentText() != "Structural deviation profile":
-            self._show_error("Select Structural deviation profile before exporting chart data.")
+        dataset = self._selected_chart_dataset(result)
+        if dataset is None:
             return
         path, _ = self.w.QFileDialog.getSaveFileName(
             self.widget, "Export chart data", "structlens_chart.xlsx", "XLSX (*.xlsx)"
@@ -1545,7 +1546,7 @@ class PanelController:
         if not path:
             return
         try:
-            export_chart_xlsx(structural_deviation_profile(result), path)
+            export_chart_xlsx(dataset, path)
             self._set_status(f"Chart data exported · {Path(path).name}")
         except (OSError, ValueError) as exc:
             self._show_error(f"Could not export chart data: {exc}")
@@ -1555,8 +1556,8 @@ class PanelController:
         if result is None:
             self._show_error("Run a comparison before exporting a chart image.")
             return
-        if self.chart_combo.currentText() != "Structural deviation profile":
-            self._show_error("Select Structural deviation profile before exporting a chart image.")
+        dataset = self._selected_chart_dataset(result)
+        if dataset is None:
             return
         path, _ = self.w.QFileDialog.getSaveFileName(
             self.widget,
@@ -1567,7 +1568,7 @@ class PanelController:
         if not path:
             return
         try:
-            export_chart_image(structural_deviation_profile(result), path, dpi=dpi)
+            export_chart_image(dataset, path, dpi=dpi)
             self._set_status(f"Chart image exported · {Path(path).name} · {dpi} dpi")
         except (OSError, RuntimeError, ValueError) as exc:
             self._show_error(f"Could not export chart image: {exc}")
@@ -1630,6 +1631,23 @@ class PanelController:
         self.chart_explanation.setText(explanations.get(label, "Charts consume the authoritative analysis state."))
         self._update_chart_export_state(label)
 
+    def set_chart_datasets(self, datasets: Mapping[str, ChartDataset | MatrixDataset]) -> None:
+        """Stage authoritative chart datasets for all v0.3 publication exports."""
+
+        self._chart_datasets = dict(datasets)
+        self._update_chart_export_state(self.chart_combo.currentText())
+
+    def _selected_chart_dataset(self, result: AnalysisResult) -> ChartDataset | MatrixDataset | None:
+        label = self.chart_combo.currentText()
+        if label == "Structural deviation profile":
+            return structural_deviation_profile(result)
+        dataset = self._chart_datasets.get(label)
+        if dataset is None:
+            self._show_error(
+                f"The {label} dataset is unavailable. Run its scientific service before exporting."
+            )
+        return dataset
+
     def _define_site_from_controls(self) -> None:
         positions = tuple(item.strip() for item in self.site_residues_edit.text().split(",") if item.strip())
         mode = str(self.site_mode_combo.currentData())
@@ -1644,11 +1662,11 @@ class PanelController:
     def _update_chart_export_state(self, label: str) -> None:
         """Keep export controls aligned with the chart profile they produce."""
 
-        supported = label == "Structural deviation profile"
+        supported = label == "Structural deviation profile" or label in self._chart_datasets
         for button in self.chart_export_buttons:
             button.setEnabled(supported)
             if supported:
-                button.setToolTip("Export the selected structural deviation profile.")
+                button.setToolTip("Export the selected authoritative chart dataset.")
             else:
                 button.setToolTip(
                     "This chart profile is available as structured data in the application API; "
