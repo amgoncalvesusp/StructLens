@@ -1,0 +1,2 @@
+MUSCLE 5.3 is redistributed under the GNU General Public License, version 3.
+The full upstream license text is copied into release bundles by CI.

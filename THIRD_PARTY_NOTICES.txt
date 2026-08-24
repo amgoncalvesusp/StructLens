@@ -1,0 +1,9 @@
+StructLens third-party notices
+
+US-align: pylelab/USalign, pinned by the release workflow; permissive upstream
+redistribution notice and scientific citations are included in licenses/.
+MUSCLE 5.3: rcedgar/muscle, GPL-3.0; citation included in resources/muscle/.
+FreeSASA: freesasa/freesasa-python and the FreeSASA C library, MIT; citation
+included in resources/freesasa/.
+Biopython, NumPy, SciPy, OpenPyXL, Pillow, and Qt retain their own licenses
+and are installed/bundled according to their upstream terms.

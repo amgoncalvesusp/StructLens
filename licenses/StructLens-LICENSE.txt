@@ -1,0 +1,5 @@
+StructLens
+
+Copyright (c) Adriano Marques Gonçalves (UNIARA)
+
+See the repository LICENSE file for the StructLens license terms.

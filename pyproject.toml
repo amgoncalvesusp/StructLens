@@ -15,6 +15,7 @@ dependencies = [
     "biopython>=1.81",
     "openpyxl>=3.1",
     "Pillow>=12.3.0",
+    "freesasa>=2.2.1",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,15 @@ structlens = [
     "resources/usalign/CITATION.md",
     "resources/usalign/*/USalign",
     "resources/usalign/*/USalign.exe",
+    "resources/muscle/VERSION",
+    "resources/muscle/LICENSE",
+    "resources/muscle/CITATION.md",
+    "resources/muscle/*/muscle",
+    "resources/muscle/*/muscle.exe",
+    "resources/muscle/*/*.sha256",
+    "resources/freesasa/VERSION",
+    "resources/freesasa/LICENSE",
+    "resources/freesasa/CITATION.md",
 ]
 
 [tool.pytest.ini_options]

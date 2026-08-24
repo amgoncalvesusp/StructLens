@@ -1,7 +1,7 @@
 #define MyAppName "StructLens"
 #define MyAppPublisher "Adriano Marques Gonçalves (UNIARA)"
 #ifndef MyAppVersion
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.0"
 #endif
 
 [Setup]
@@ -11,14 +11,14 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL=https://github.com/amgoncalvesusp/StructLens
 SetupIconFile=structlens.ico
-DefaultDirName={localappdata}\Programs\StructLens
+DefaultDirName={autopf}\StructLens
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\release
-OutputBaseFilename=StructLens-Setup
+OutputBaseFilename=StructLens-v{#MyAppVersion}-Windows-x86_64-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

@@ -45,6 +45,7 @@ from structlens.plugin.visualization.renderer import (
     VisualizationRenderer,
     VisualizationState,
 )
+from structlens.resources.backends import backend_versions
 
 from .main_panel import SCIENTIFIC_SECTIONS, WORKFLOW_HELP, StructLensPanelModel
 from .qt_compat import QtBindings
@@ -302,6 +303,12 @@ class PanelController:
         )
         note.setWordWrap(True)
         content.addWidget(note)
+        backend_group = self.w.QGroupBox("About · Scientific Backends", self.widget)
+        backend_layout = self.w.QVBoxLayout(backend_group)
+        backend_layout.setContentsMargins(18, 14, 18, 14)
+        versions = backend_versions()
+        backend_layout.addWidget(_label(self.w, " · ".join(f"{key}: {value}" for key, value in versions.items()), "fieldMeta"))
+        content.addWidget(backend_group)
         actions = self.w.QHBoxLayout()
         load_button = _button(self.w, "Load sources", "secondaryButton")
         load_button.clicked.connect(self._load_sources_from_edits)
