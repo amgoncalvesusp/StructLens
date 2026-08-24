@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -1093,7 +1093,7 @@ class PanelController:
             names = {str(name) for name in get_names("objects")} if get_names is not None else set()
             if object_name not in names:
                 load(str(path), object_name)
-            return object_name
+            return str(object_name)
         except Exception:
             return None
 
@@ -2349,9 +2349,9 @@ def _homogeneous_transform(transform: Any) -> np.ndarray[Any, Any] | None:
 
     if transform is None:
         return None
-    matrix = np.eye(4, dtype=np.float64)
-    matrix[:3, :3] = np.asarray(transform.rotation, dtype=np.float64)
-    matrix[:3, 3] = np.asarray(transform.translation, dtype=np.float64)
+    matrix = cast(np.ndarray[Any, Any], np.eye(4, dtype=np.float64))
+    matrix[:3, :3] = cast(np.ndarray[Any, Any], np.asarray(transform.rotation, dtype=np.float64))
+    matrix[:3, 3] = cast(np.ndarray[Any, Any], np.asarray(transform.translation, dtype=np.float64))
     return matrix
 
 
