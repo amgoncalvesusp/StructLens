@@ -6,7 +6,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt_widgets = pytest.importorskip("PySide6.QtWidgets")
 
-from structlens.core.models import AnalysisResult  # noqa: E402
+from structlens.application.msa_service import align_sequences  # noqa: E402
+from structlens.core.models import AnalysisResult, ResidueId  # noqa: E402
+from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef  # noqa: E402
 from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
 
 
@@ -22,16 +24,18 @@ def test_qt_panel_builds_operate_workflow(application) -> None:
     controller = panel._structlens_controller
 
     assert panel.objectName() == "structlensPanel"
-    assert controller.nav.count() == 8
-    assert controller.pages.count() == 8
+    assert controller.nav.count() == 9
+    assert controller.pages.count() == 9
     assert controller.compare_button.text() == "Compare"
     assert controller.mode_combo.count() == 4
     assert controller.comparison_combo.count() == 1
     assert controller.comparison_combo.currentData() == "pairwise"
     assert controller.mutation_table.columnCount() == 8
     assert controller.residue_table.columnCount() == 10
-    assert controller.nav.item(5).text() == "PyMOL"
-    assert controller.nav.item(7).text() == "Export"
+    assert controller.msa_table.columnCount() == 3
+    assert controller.nav.item(4).text() == "Sites"
+    assert controller.nav.item(6).text() == "PyMOL"
+    assert controller.nav.item(8).text() == "Export"
 
     controller.close()
     panel.deleteLater()
@@ -114,6 +118,26 @@ def test_failed_source_reload_clears_previous_structure(application) -> None:
     assert controller.reference_structure is None
     assert controller.reference_chain_combo.count() == 0
 
+    controller.close()
+    panel.deleteLater()
+
+
+def test_msa_viewer_renders_authoritative_alignment_rows(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    def sequence(identifier: str, value: str) -> AnalysisSequence:
+        return AnalysisSequence(
+            identifier,
+            "A",
+            value,
+            tuple(SequenceResidueRef(index, character, ResidueId(identifier, "1", "A", str(index), None, "ALA")) for index, character in enumerate(value)),
+            "derived",
+        )
+    alignment = align_sequences((sequence("ref", "ABC"), sequence("target", "ABCGH")), MSASettings())
+    controller.set_msa_result(alignment)
+    assert controller.msa_table.rowCount() == 2
+    assert controller.msa_table.item(0, 1).text() == "ABC--"
+    assert "insertion columns" in controller.msa_summary_label.text()
     controller.close()
     panel.deleteLater()
 
