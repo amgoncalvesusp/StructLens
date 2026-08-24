@@ -207,3 +207,25 @@ __all__ = [
     "MultipleSequenceAlignmentEngine",
     "SequenceResidueRef",
 ]
+
+from .conservation import (  # noqa: E402
+    AMBIGUOUS_AMINO_ACIDS,
+    CANONICAL_AMINO_ACIDS,
+    amino_acid_frequency_matrix,
+    column_statistics,
+    conservation_profile,
+    sequence_logo_heights,
+)
+from .reference_labels import format_reference_label  # noqa: E402
+from .sequence_logo import build_sequence_logo  # noqa: E402
+
+__all__ += [
+    "AMBIGUOUS_AMINO_ACIDS",
+    "CANONICAL_AMINO_ACIDS",
+    "amino_acid_frequency_matrix",
+    "build_sequence_logo",
+    "column_statistics",
+    "conservation_profile",
+    "format_reference_label",
+    "sequence_logo_heights",
+]

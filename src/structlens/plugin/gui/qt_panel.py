@@ -205,7 +205,7 @@ class PanelController:
         self.progress.setFixedWidth(180)
         self.progress.setVisible(False)
         footer_layout.addWidget(self.progress)
-        footer_layout.addWidget(_label(self.w, "v0.2.0 · units are explicit", "footerMeta"))
+        footer_layout.addWidget(_label(self.w, "v0.3.0 · units are explicit · descriptive evidence only", "footerMeta"))
         root.addWidget(footer)
 
         self.compare_button.clicked.connect(self._start_analysis)
@@ -460,6 +460,17 @@ class PanelController:
         _configure_table(self.residue_table, self.w)
         self.residue_table.cellDoubleClicked.connect(self._focus_residue)
         content.addWidget(self.residue_table, 1)
+        evidence_group = self.w.QGroupBox("Residue Evidence Card", self.widget)
+        evidence_layout = self.w.QVBoxLayout(evidence_group)
+        evidence_layout.setContentsMargins(18, 16, 18, 16)
+        self.evidence_card_label = _label(
+            self.w,
+            "Select a correspondence row to inspect sequence, structure, interaction, site, and quality evidence. Missing values remain unavailable.",
+            "helpText",
+        )
+        self.evidence_card_label.setWordWrap(True)
+        evidence_layout.addWidget(self.evidence_card_label)
+        content.addWidget(evidence_group)
 
     # ---------------------------------------------------------- Visualization
     def _build_visualization_page(self) -> None:
@@ -481,6 +492,12 @@ class PanelController:
             "Sequence–structure relationship",
             "Structural conservation profile",
             "Key-residue comparison",
+            "MSA conservation profile",
+            "Sequence logo",
+            "Interaction difference matrix",
+            "Site comparison",
+            "Distance-difference heatmap",
+            "Evidence Card figure",
         ):
             self.chart_combo.addItem(label)
         chart_layout.addWidget(self.chart_combo, 1, 0)
@@ -501,6 +518,34 @@ class PanelController:
         )
         note.setWordWrap(True)
         content.addWidget(note)
+
+        site_group = self.w.QGroupBox("Sites · active-site or ligand-defined context", self.widget)
+        site_layout = self.w.QGridLayout(site_group)
+        site_layout.setContentsMargins(18, 16, 18, 16)
+        site_layout.setHorizontalSpacing(12)
+        site_layout.setVerticalSpacing(8)
+        self.site_mode_combo = self.w.QComboBox(site_group)
+        for label, value in (("Key residues", "key_residues"), ("Ligand radius", "ligand_radius"), ("Residue radius", "residue_radius")):
+            self.site_mode_combo.addItem(label, value)
+        site_layout.addWidget(_label(self.w, "DEFINITION", "fieldLabel"), 0, 0)
+        site_layout.addWidget(self.site_mode_combo, 1, 0)
+        self.site_residues_edit = self.w.QLineEdit(site_group)
+        self.site_residues_edit.setPlaceholderText("A:70, A:73, A:166")
+        site_layout.addWidget(_label(self.w, "REFERENCE POSITIONS", "fieldLabel"), 0, 1)
+        site_layout.addWidget(self.site_residues_edit, 1, 1)
+        self.site_radius_spin = self.w.QDoubleSpinBox(site_group)
+        self.site_radius_spin.setRange(0.1, 20.0)
+        self.site_radius_spin.setValue(5.0)
+        self.site_radius_spin.setSuffix(" Å")
+        site_layout.addWidget(_label(self.w, "RADIUS", "fieldLabel"), 0, 2)
+        site_layout.addWidget(self.site_radius_spin, 1, 2)
+        self.site_define_button = _button(self.w, "Define site", "secondaryButton")
+        self.site_define_button.clicked.connect(self._define_site_from_controls)
+        site_layout.addWidget(self.site_define_button, 1, 3)
+        self.site_status_label = _label(self.w, "Site metrics appear after an analysis service run; this panel never estimates them locally.", "inlineNote")
+        self.site_status_label.setWordWrap(True)
+        site_layout.addWidget(self.site_status_label, 2, 0, 1, 4)
+        content.addWidget(site_group)
 
     # --------------------------------------------------------------- PyMOL
     def _build_pymol_page(self) -> None:
@@ -1145,6 +1190,12 @@ class PanelController:
         item = next((entry for entry in result.correspondences if entry.alignment_index == alignment_index), None)
         if item is None:
             return
+        self.evidence_card_label.setText(
+            f"Reference {_residue_label(item.reference) or 'unavailable'} → Target {_residue_label(item.target) or 'unavailable'}\n"
+            f"Status: {item.status.value} · Cα displacement: {_number(item.ca_displacement_angstrom)} Å · "
+            f"Backbone RMSD: {_number(item.backbone_rmsd_angstrom)} Å · "
+            "Interactions/site evidence: unavailable until the corresponding v0.3 service result is present."
+        )
         selection = self._pymol.focus_residue(item, result.target_id)
         if selection:
             self._set_status(f"Focused {selection} in PyMOL")
@@ -1411,9 +1462,26 @@ class PanelController:
             "Sequence–structure relationship": "Sequence identity (%) versus TM-score by default; points link back to a selected pair.",
             "Structural conservation profile": "Cα positional variability (Å) with a separate position-coverage track.",
             "Key-residue comparison": "Explicit key reference residues compared across targets with units and missing mappings visible.",
+            "MSA conservation profile": "Alignment-column conservation with gap and ambiguous-residue tracks; gaps are not amino acids.",
+            "Sequence logo": "Letter heights are pᵢ × information content, with canonical amino acids only.",
+            "Interaction difference matrix": "Reference-normalized conserved, gained, lost, and target-only-unmapped interactions.",
+            "Site comparison": "Global-frame and site-fitted RMSD remain separate; envelope volume is not a cavity volume.",
+            "Distance-difference heatmap": "Target internal distance minus reference internal distance (Å), with missing pairs masked.",
+            "Evidence Card figure": "Publication-ready descriptive evidence; no impact or functional score is inferred.",
         }
         self.chart_explanation.setText(explanations.get(label, "Charts consume the authoritative analysis state."))
         self._update_chart_export_state(label)
+
+    def _define_site_from_controls(self) -> None:
+        positions = tuple(item.strip() for item in self.site_residues_edit.text().split(",") if item.strip())
+        mode = str(self.site_mode_combo.currentData())
+        if mode == "key_residues" and not positions:
+            self._show_error("Key-residue sites need at least one reference position.")
+            return
+        self.site_status_label.setText(
+            f"Site definition staged · mode={mode} · {len(positions)} reference position(s) · radius {self.site_radius_spin.value():.1f} Å. "
+            "Run the site service to calculate coverage, RMSDs, SASA, and interaction fingerprints."
+        )
 
     def _update_chart_export_state(self, label: str) -> None:
         """Keep export controls aligned with the chart profile they produce."""

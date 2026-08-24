@@ -238,6 +238,9 @@ class EvidenceCard:
 
 ResidueEvidenceCard = EvidenceCard
 
+from .builder import EvidenceCardBuilder, build_evidence_card  # noqa: E402
+from .completeness import quality_for_sections  # noqa: E402
+from .formatting import format_evidence_card  # noqa: E402
 
 __all__ = [
     "EvidenceAvailability",
@@ -248,4 +251,8 @@ __all__ = [
     "SequenceEvidence",
     "SiteEvidence",
     "StructureEvidence",
+    "EvidenceCardBuilder",
+    "build_evidence_card",
+    "format_evidence_card",
+    "quality_for_sections",
 ]
