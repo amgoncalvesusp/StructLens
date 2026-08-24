@@ -17,6 +17,7 @@ from structlens.application.export_service import (
     export_analysis_csv,
     export_analysis_json,
     export_analysis_xlsx,
+    export_v03_xlsx,
 )
 from structlens.application.project_state import ProjectState
 from structlens.core.errors import AnalysisCancelledError, BundleValidationError
@@ -120,6 +121,7 @@ class PanelController:
             "evidence": None,
             "vectors": None,
         }
+        self._v03_export_records: dict[str, Any] = {}
         self._build_shell()
         self._build_project_page()
         self._build_mutations_page()
@@ -1391,6 +1393,15 @@ class PanelController:
         self._update_legend()
 
     # ---------------------------------------------------------------- exports
+    def set_v03_export_records(self, **records: Any) -> None:
+        """Stage authoritative v0.3 records for the XLSX exporter.
+
+        Scientific services calculate these records; the GUI only stores a
+        shallow copy and routes them to ``export_v03_xlsx`` when requested.
+        """
+
+        self._v03_export_records = dict(records)
+
     def set_v03_bundle_payloads(
         self,
         *,
@@ -1430,6 +1441,25 @@ class PanelController:
         return dict(self._v03_bundle_payloads)
 
     def _export_xlsx(self) -> None:
+        if self._v03_export_records:
+            result = self.model.analysis
+            if result is None:
+                self._show_error("Run a comparison before exporting results.")
+                return
+            path, _ = self.w.QFileDialog.getSaveFileName(
+                self.widget,
+                "Export v0.3 XLSX",
+                "structlens_v03_result.xlsx",
+                "XLSX (*.xlsx)",
+            )
+            if not path:
+                return
+            try:
+                export_v03_xlsx(path, **self._v03_export_records)
+                self._set_status(f"v0.3 XLSX export written · {Path(path).name}")
+            except (OSError, ValueError) as exc:
+                self._show_error(f"Could not export v0.3 XLSX: {exc}")
+            return
         self._export("xlsx", export_analysis_xlsx, "XLSX")
 
     def _export_csv(self) -> None:

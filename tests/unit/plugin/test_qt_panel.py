@@ -142,6 +142,38 @@ def test_msa_viewer_renders_authoritative_alignment_rows(application) -> None:
     panel.deleteLater()
 
 
+def test_v03_xlsx_export_routes_staged_records(application, monkeypatch, tmp_path: Path) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    controller.model = controller.model.with_analysis(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=1.0,
+            alignment_decision="test",
+        )
+    )
+    output = tmp_path / "result.xlsx"
+    controller.set_v03_export_records(provenance=("fixture",))
+    called: dict[str, object] = {}
+    monkeypatch.setattr(
+        controller.w.QFileDialog,
+        "getSaveFileName",
+        lambda *_args: (str(output), "XLSX (*.xlsx)"),
+    )
+    monkeypatch.setattr(
+        "structlens.plugin.gui.qt_panel.export_v03_xlsx",
+        lambda path, **kwargs: called.update(path=str(path), **kwargs),
+    )
+    controller._export_xlsx()
+    assert called == {"path": str(output), "provenance": ("fixture",)}
+    controller.close()
+    panel.deleteLater()
+
+
 def test_pymol_bundle_export_forwards_only_staged_v03_payloads(
     application, monkeypatch, tmp_path: Path
 ) -> None:
