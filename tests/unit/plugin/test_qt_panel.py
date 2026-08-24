@@ -12,6 +12,7 @@ from structlens.core.models import AnalysisResult, ResidueId  # noqa: E402
 from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef  # noqa: E402
 from structlens.core.sites import SiteMetrics  # noqa: E402
 from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
+from structlens.plugin.gui.qt_panel import _matrix_image_kwargs  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -157,6 +158,33 @@ def test_results_page_compiles_all_analysis_results_and_preserves_history(applic
     panel.deleteLater()
 
 
+def test_invalidation_clears_latest_result_labels_but_keeps_compiled_history(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    controller._analysis_finished(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=0.8,
+            alignment_decision="accepted",
+            strict_rmsd_angstrom=0.5,
+        )
+    )
+    assert controller.results_table.rowCount() == 1
+
+    controller._invalidate_analysis_views()
+
+    assert controller.result_decision.text() == "No comparison yet."
+    assert controller.result_labels["sequence_identity"].text() == "—"
+    assert controller.result_labels["strict_rmsd_angstrom"].text() == "—"
+    assert controller.results_table.rowCount() == 1
+    controller.close()
+    panel.deleteLater()
+
+
 def test_sites_and_charts_show_authoritative_result_areas(application) -> None:
     panel = build_qt_panel()
     controller = panel._structlens_controller
@@ -179,6 +207,148 @@ def test_sites_and_charts_show_authoritative_result_areas(application) -> None:
     assert controller.chart_preview_status.text() != "Chart unavailable. Run the corresponding scientific service first."
     controller.close()
     panel.deleteLater()
+
+
+def test_msa_and_chart_results_land_on_their_scientific_tabs(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+
+    alignment = align_sequences(
+        (
+            AnalysisSequence(
+                "ref",
+                "A",
+                "ABC",
+                tuple(
+                    SequenceResidueRef(
+                        index,
+                        character,
+                        ResidueId("ref", "1", "A", str(index + 1), None, "ALA"),
+                    )
+                    for index, character in enumerate("ABC")
+                ),
+                "derived",
+            ),
+            AnalysisSequence(
+                "target",
+                "A",
+                "ABC",
+                tuple(
+                    SequenceResidueRef(
+                        index,
+                        character,
+                        ResidueId("target", "1", "A", str(index + 1), None, "ALA"),
+                    )
+                    for index, character in enumerate("ABC")
+                ),
+                "derived",
+            ),
+        ),
+        MSASettings(),
+    )
+    controller.set_msa_result(alignment)
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Sequences")
+
+    dataset = ChartDataset("msa", "MSA", "column", "conservation", "fraction", (), "descriptive")
+    controller.set_chart_datasets({"MSA conservation profile": dataset})
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Charts")
+    controller.close()
+    panel.deleteLater()
+
+
+def test_msa_chart_dataset_enables_chart_exports(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    alignment = align_sequences(
+        (
+            AnalysisSequence(
+                "ref",
+                "A",
+                "ABC",
+                tuple(
+                    SequenceResidueRef(
+                        index,
+                        character,
+                        ResidueId("ref", "1", "A", str(index + 1), None, "ALA"),
+                    )
+                    for index, character in enumerate("ABC")
+                ),
+                "derived",
+            ),
+        ),
+        MSASettings(),
+    )
+    controller.set_msa_result(alignment)
+    controller.chart_combo.setCurrentText("MSA conservation profile")
+    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+    controller.close()
+    panel.deleteLater()
+
+
+def test_matrix_image_limits_preserve_authoritative_scale() -> None:
+    from structlens.application.chart_data import MatrixDataset
+
+    dataset = MatrixDataset(
+        "distance_difference_heatmap",
+        "Distance-difference heatmap",
+        "Reference",
+        "Reference",
+        (),
+        "Target distance minus reference distance (Å).",
+    )
+    kwargs = _matrix_image_kwargs(dataset, (-2.0, 5.0, None))
+    assert kwargs["vmin"] == -5.0
+    assert kwargs["vmax"] == 5.0
+
+    binary = MatrixDataset("mutation", "Mutation matrix", "Structure", "Position", (), "status")
+    binary_kwargs = _matrix_image_kwargs(binary, (0.0, 1.0))
+    assert binary_kwargs["vmin"] == 0.0
+    assert binary_kwargs["vmax"] == 1.0
+
+
+def test_project_round_trip_preserves_compiled_analysis_history(application, monkeypatch, tmp_path: Path) -> None:
+    output = tmp_path / "history.structlens.json"
+
+    first_panel = build_qt_panel()
+    first = first_panel._structlens_controller
+    first._analysis_finished(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target-a",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=0.9,
+            sequence_coverage=0.8,
+            alignment_decision="accepted",
+        )
+    )
+    first._analysis_finished(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target-b",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=0.8,
+            sequence_coverage=0.7,
+            alignment_decision="accepted",
+        )
+    )
+    monkeypatch.setattr(first.w.QFileDialog, "getSaveFileName", lambda *_args: (str(output), "StructLens project (*.json)"))
+    first._save_project()
+    first.close()
+    first_panel.deleteLater()
+
+    second_panel = build_qt_panel()
+    second = second_panel._structlens_controller
+    monkeypatch.setattr(second.w.QFileDialog, "getOpenFileName", lambda *_args: (str(output), "StructLens project (*.json)"))
+    second._open_project()
+
+    assert second.results_table.rowCount() == 2
+    assert second.results_table.item(0, 1).text() == "target-a"
+    assert second.results_table.item(1, 1).text() == "target-b"
+    assert second.result_decision.text().startswith("<b>accepted</b><br>Reference: reference · Target: target-b")
+    second.close()
+    second_panel.deleteLater()
 
 
 def test_msa_viewer_renders_authoritative_alignment_rows(application) -> None:
