@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from structlens.application.project_state import ProjectState
-from structlens.core.models import AlignmentMode, AnalysisSettings, ResidueId
+from structlens.core.metrics.sequence_metrics import SequenceAlignmentMetrics
+from structlens.core.models import (
+    AlignmentMode,
+    AnalysisSettings,
+    ComparisonMode,
+    ReferenceVsManyAnalysis,
+    ResidueId,
+    TargetAnalysis,
+)
 
 
 def test_project_state_json_round_trip_preserves_settings_and_keys() -> None:
@@ -27,3 +35,20 @@ def test_project_state_can_record_sha256_source_hash(tmp_path) -> None:
     state = ProjectState(reference_source=str(source)).with_source_hashes()
 
     assert len(state.source_hashes[str(source)]) == 64
+
+
+def test_project_state_round_trips_reference_vs_many() -> None:
+    target = TargetAnalysis(
+        target_id="target",
+        correspondence=(),
+        mutations=(),
+        sequence_metrics=SequenceAlignmentMetrics(0.8, 0.9, 1.0, 1.0, 1.0, 10),
+    )
+    state = ProjectState(
+        comparison_mode=ComparisonMode.REFERENCE_VS_MANY,
+        reference_vs_many=ReferenceVsManyAnalysis("reference", {"target": target}),
+    )
+    restored = ProjectState.from_json(state.to_json())
+    assert restored.comparison_mode is ComparisonMode.REFERENCE_VS_MANY
+    assert restored.reference_vs_many is not None
+    assert restored.reference_vs_many.targets["target"].sequence_metrics.identity == 0.8

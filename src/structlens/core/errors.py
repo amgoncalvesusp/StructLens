@@ -37,14 +37,54 @@ class ProjectSchemaError(StructLensError):
     """Project JSON does not match a supported schema."""
 
 
+class BundledBackendUnavailableError(StructLensError):
+    """The packaged structural backend is unavailable for this platform."""
+
+
+class UnsupportedPlatformError(StructLensError):
+    """The requested operation is not supported on the current platform."""
+
+
+class PyMOLNotConfiguredError(StructLensError):
+    """PyMOL was not configured for an optional launch handoff."""
+
+
+class PyMOLPluginUnavailableError(StructLensError):
+    """The StructLens-PyMOL plugin is not available for an optional launch."""
+
+
+class BundleValidationError(StructLensError):
+    """A .structlens-pymol bundle is malformed or incomplete."""
+
+
+class BundleCompatibilityError(BundleValidationError):
+    """A .structlens-pymol bundle uses an unsupported schema major version."""
+
+
+class UnsafeBundleError(BundleValidationError):
+    """A bundle contains unsafe paths or executable content."""
+
+
+class MultiStructureAlignmentError(StructLensError):
+    """A multiple-structure analysis cannot be completed."""
+
+
 __all__ = [
     "AnalysisCancelledError",
+    "BundledBackendUnavailableError",
+    "BundleCompatibilityError",
+    "BundleValidationError",
     "ChainNotFoundError",
     "InputFormatError",
     "InsufficientAtomsError",
     "MappingError",
     "ProjectSchemaError",
+    "PyMOLNotConfiguredError",
+    "PyMOLPluginUnavailableError",
     "StructLensError",
+    "MultiStructureAlignmentError",
+    "UnsafeBundleError",
+    "UnsupportedPlatformError",
     "USAlignExecutionError",
     "USAlignNotFoundError",
 ]

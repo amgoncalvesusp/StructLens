@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from structlens.core.models.correspondence import ResidueCorrespondence
 from structlens.core.models.mutation import MutationEvent
+
+if TYPE_CHECKING:
+    from .multi import StructuralTransform
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +23,7 @@ class AnalysisResult:
     sequence_identity: float
     sequence_coverage: float
     alignment_decision: str
+    sequence_similarity: float | None = None
     strict_rmsd_angstrom: float | None = None
     refined_rmsd_angstrom: float | None = None
     mapped_residue_count: int = 0
@@ -26,6 +31,7 @@ class AnalysisResult:
     excluded_alignment_indices: tuple[int, ...] = ()
     tm_score: float | None = None
     provenance: Mapping[str, str] = field(default_factory=dict)
+    transform: StructuralTransform | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))

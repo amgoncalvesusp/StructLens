@@ -1,7 +1,7 @@
 #define MyAppName "StructLens"
 #define MyAppPublisher "Adriano Marques Gonçalves (UNIARA)"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.5"
+#define MyAppVersion "0.2.0"
 #endif
 
 [Setup]

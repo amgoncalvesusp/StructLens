@@ -1,14 +1,12 @@
 # StructLens
 
-StructLens is an English-only Python engine and optional PyMOL plugin for reproducible protein sequence/structure comparison. It keeps an explicit residue correspondence table, detects descriptive mutation classes, calculates strict and optional refined structural metrics, and exports scientific tables.
+StructLens is an English-only desktop analysis application for integrated protein sequence and structure comparison. It keeps an explicit residue correspondence table, supports pairwise plus v0.2 multi-structure scientific models, calculates descriptive mutation and structural metrics, exports scientific chart data, and creates validated PyMOL interchange bundles.
 
 Author: Adriano Marques Gonçalves (UNIARA)
 
 ## Installers and releases
 
-Tagged releases publish a Python wheel plus native setup installers for Windows x64 and Linux x86_64. On Windows, double-click `StructLens-Setup.exe`; on Linux, open `StructLens-Setup.deb` with the system software/package installer. Both setups install the standalone CLI and include the wheel and PyMOL plugin installer files.
-
-For PyMOL, run the included plugin installer script against the Python executable used by your PyMOL installation, then load `structlens.plugin.entrypoint` through Plugin > Install Plugin.
+Tagged releases publish a Python wheel plus native setup installers for Windows x64 and Linux x86_64. On Windows, double-click `StructLens-Setup.exe`; on Linux, open `StructLens-Setup.deb` with the system software/package installer. Both setups install the standalone CLI and desktop GUI for the main StructLens application.
 
 ## Install
 
@@ -16,7 +14,7 @@ For PyMOL, run the included plugin installer script against the Python executabl
 python -m pip install -e .
 ```
 
-PDB, mmCIF/CIF (including gzip-compressed PDB), and FASTA inputs are supported. NumPy, Biopython, openpyxl, and Pillow are installed as runtime dependencies for analysis and export. Structure-guided mapping uses an explicitly configured US-align executable; StructLens never downloads binaries automatically.
+PDB, mmCIF/CIF (including gzip-compressed PDB), and FASTA inputs are supported. NumPy, Biopython, openpyxl, and Pillow are installed as runtime dependencies for analysis and export. Install `structlens[charts]` for publication chart images (matplotlib). Structural mapping resolves a custom US-align path first, then a tested bundled binary when present, and finally PATH only as a developer/diagnostic fallback; StructLens never downloads binaries automatically.
 
 ## First comparison
 
@@ -28,7 +26,7 @@ The command reports sequence identity, coverage, strict Cα RMSD, optional refin
 
 ## Desktop GUI
 
-Run `structlens-gui` after installing the `gui` extra (PyQt5), or launch StructLens from the Windows/Linux setup shortcut. The standalone Evidence Bench loads PDB/mmCIF files, runs comparisons without freezing the window, exposes correspondence and mutation tables, and exports XLSX/CSV/JSON. PyMOL-only object loading and 3D rendering remain available when the same panel is opened as the plugin inside PyMOL. PySide6 users can opt in with `pip install "structlens[gui-pyside6]"`.
+Run `structlens-gui` after installing the `gui` extra (PyQt5), or launch StructLens from the Windows/Linux setup shortcut. The standalone Evidence Bench loads PDB/mmCIF files, runs comparisons without freezing the window, exposes Project, Sequences, Structures, Residues, Charts, PyMOL, Results, and Export areas, and writes XLSX/CSV/JSON plus validated `.structlens-pymol` bundles. PySide6 users can opt in with `pip install "structlens[gui-pyside6]"`.
 
 ## Scientific terminology
 
@@ -36,12 +34,10 @@ Run `structlens-gui` after installing the `gui` extra (PyQt5), or launch StructL
 
 BLOSUM62, Grantham distance, structural displacement, and mutation classes are descriptors only. StructLens does not infer pathogenicity, stability, catalysis, or function.
 
-## PyMOL plugin
+## PyMOL integration
 
-Load `structlens.plugin.entrypoint` from the PyMOL plugin manager. The Evidence Bench GUI provides Project, Alignment, Mutations, Residues, Visualization, and Results stages: choose files or existing PyMOL objects, select chains, run a background comparison, inspect double-clickable tables, apply a preset, and export the result. The plugin is namespaced and reversible: it only deletes selections it created. PyMOL is a visualization backend, never the scientific state. If Qt/PyMOL is unavailable, the core and CLI remain usable.
-
-The panel sections are Project, Alignment, Mutations, Residues, Visualization, and Results. Each workflow option has contextual English help. Visualization presets are Minimal, Publication, Mutation focus, Structural deviation, Active site, and Presentation.
+PyMOL is a separate visualization product in `https://github.com/amgoncalvesusp/pymol-plugins/` under `structlens-pymol/`. This repository owns the scientific analysis, bundle schema, bundle writer, and optional external launch handoff. The desktop app can always export a validated `.structlens-pymol` file; when a PyMOL executable is configured, `Open in PyMOL` launches the external application with that bundle.
 
 ## Exports and limitations
 
-Every scientific table exposed by the application has XLSX/CSV/JSON export paths. The core export service currently provides publication-ready tabular output; raster JPEG/TIFF rendering requires a host molecular renderer and is intentionally isolated from the scientific engine. Online structure downloads, energetic/function prediction, trajectories, cloud services, and PDF/HTML reports are deferred v0.1 features.
+Every scientific table exposed by the application has XLSX/CSV/JSON export paths. Chart datasets can be exported to XLSX or publication JPEG/TIFF at real 300/600 dpi when the `charts` extra is installed. Online structure downloads, energetic/function prediction, trajectories, cloud services, and live IPC synchronization remain outside this revision.

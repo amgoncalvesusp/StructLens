@@ -12,7 +12,6 @@ fi
 
 echo "Installing StructLens from $(basename "$WHEEL")..."
 "$PYTHON_BIN" -m pip install --upgrade "$WHEEL"
-PLUGIN_PATH="$($PYTHON_BIN -c 'import pathlib, structlens; print(pathlib.Path(structlens.__file__).parent / "plugin" / "entrypoint.py")')"
 echo "Installation complete."
-echo "PyMOL plugin entry point: $PLUGIN_PATH"
-echo "In PyMOL, load that entry point through Plugin > Install Plugin."
+echo "Run structlens-gui to open the desktop application."
+echo "Use Export for PyMOL from the app to generate a validated .structlens-pymol bundle."

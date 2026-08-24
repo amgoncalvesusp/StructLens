@@ -10,7 +10,7 @@ reproducible comparison, then moves from evidence to a reversible PyMOL view.
 FIRST VIEWPORT: a narrow workflow rail anchors a two-column Project page; the
 header keeps status and Compare visible while the right canvas holds source
 controls, chain choices, and the next action.
-FORM: Operate-mode split workspace, chosen to keep six scientific stages visible
+FORM: Operate-mode split workspace, chosen to keep eight scientific stages visible
 without burying the task in a tab strip or card mosaic.
 """
 
@@ -28,6 +28,19 @@ GUI_SECTIONS = (
     "Residues",
     "Visualization",
     "Results",
+)
+
+# v0.2 scientific labels are kept separately so host integrations that relied
+# on the v0.1 menu identifiers remain source-compatible.
+SCIENTIFIC_SECTIONS = (
+    "Project",
+    "Sequences",
+    "Structures",
+    "Residues",
+    "Charts",
+    "PyMOL",
+    "Results",
+    "Export",
 )
 
 WORKFLOW_HELP = {
@@ -125,6 +138,7 @@ def build_qt_panel(
 
 __all__ = [
     "GUI_SECTIONS",
+    "SCIENTIFIC_SECTIONS",
     "WORKFLOW_HELP",
     "StructLensPanelModel",
     "build_qt_panel",

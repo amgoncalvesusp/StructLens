@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 import subprocess
+import tempfile
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,7 +17,7 @@ from structlens.core.models import (
     StructuralAlignmentSettings,
 )
 
-from .executable import USAlignExecutionError, USAlignOutputError, discover_executable
+from .executable import USAlignExecutionError, USAlignOutputError, resolve_backend
 from .parser import USAlignParsedOutput, USAlignTransform, parse_usalign_output
 
 
@@ -51,28 +54,28 @@ class USAlignAdapter:
     ) -> USAlignAlignmentResult:
         """Run alignment for two chains whose source files are registered locally."""
 
-        reference_path = self._source_path(reference)
-        target_path = self._source_path(target)
-        executable = discover_executable(
-            self._configured_executable
-            if self._configured_executable is not None
-            else settings.executable
-        )
-        try:
-            completed = subprocess.run(
-                [str(executable), str(reference_path), str(target_path)],
-                capture_output=True,
-                check=False,
-                shell=False,
-                text=True,
-                timeout=settings.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as error:
-            raise USAlignExecutionError(
-                f"US-align timed out after {settings.timeout_seconds} seconds."
-            ) from error
-        except OSError as error:
-            raise USAlignExecutionError(f"Could not run US-align: {error}") from error
+        configured = self._configured_executable
+        if configured is None and settings.executable not in {"", "USalign", "US-align"}:
+            configured = settings.executable
+        backend = resolve_backend(configured)
+        with ExitStack() as stack:
+            reference_path = stack.enter_context(_normalized_input(self._source_path(reference)))
+            target_path = stack.enter_context(_normalized_input(self._source_path(target)))
+            try:
+                completed = subprocess.run(
+                    [str(backend.path), str(reference_path), str(target_path)],
+                    capture_output=True,
+                    check=False,
+                    shell=False,
+                    text=True,
+                    timeout=settings.timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise USAlignExecutionError(
+                    f"US-align timed out after {settings.timeout_seconds} seconds."
+                ) from error
+            except OSError as error:
+                raise USAlignExecutionError(f"Could not run US-align: {error}") from error
         if completed.returncode != 0:
             details = (
                 completed.stderr.strip() or completed.stdout.strip() or "no output"
@@ -81,7 +84,20 @@ class USAlignAdapter:
                 f"US-align exited with code {completed.returncode}: {details}"
             )
         parsed = parse_usalign_output(completed.stdout)
-        return self._result_from_parsed(reference, target, parsed)
+        result = self._result_from_parsed(reference, target, parsed)
+        return USAlignAlignmentResult(
+            correspondences=result.correspondences,
+            tm_score=result.tm_score,
+            transform=result.transform,
+            executable_version=result.executable_version or backend.version,
+            metadata={
+                **dict(result.metadata),
+                "backend": "US-align",
+                "binary_source": backend.source,
+                "platform": backend.platform,
+                "command_options": "--input-reference --input-target",
+            },
+        )
 
     def _source_path(self, chain: ProteinChain) -> Path:
         try:
@@ -150,3 +166,30 @@ def _status_for(
 
 
 __all__ = ["USAlignAdapter", "USAlignAlignmentResult"]
+
+
+class _normalized_input:
+    """Exit-stack compatible temporary decompression for backend inputs."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._directory: tempfile.TemporaryDirectory[str] | None = None
+        self._materialized = path
+
+    def __enter__(self) -> Path:
+        if path_is_compressed(self.path):
+            self._directory = tempfile.TemporaryDirectory(prefix="structlens-usalign-")
+            target_name = self.path.name[:-3]
+            destination = Path(self._directory.name) / target_name
+            with gzip.open(self.path, "rb") as source, destination.open("wb") as target:
+                target.write(source.read())
+            self._materialized = destination
+        return self._materialized
+
+    def __exit__(self, *_: object) -> None:
+        if self._directory is not None:
+            self._directory.cleanup()
+
+
+def path_is_compressed(path: Path) -> bool:
+    return path.name.lower().endswith((".pdb.gz", ".cif.gz", ".mmcif.gz"))

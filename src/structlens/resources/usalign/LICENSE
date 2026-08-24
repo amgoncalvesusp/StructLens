@@ -1,0 +1,3 @@
+StructLens does not redistribute a US-align executable in source distributions.
+Release maintainers must verify the current upstream redistribution terms before
+adding a platform binary to this directory.

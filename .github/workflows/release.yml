@@ -1,4 +1,4 @@
-name: Build and release setup installers
+name: Build and release StructLens setup installers
 
 on:
   push:
@@ -150,14 +150,14 @@ jobs:
           Architecture: amd64
           Maintainer: Adriano Marques Gonçalves (UNIARA)
           Depends: libc6
-          Description: Reproducible protein-structure comparison and PyMOL plugin
-           StructLens provides sequence/structure comparison, mutation evidence, and exports.
+          Description: Integrated protein sequence and structure comparison
+           StructLens provides sequence/structure comparison, mutation evidence, charts, and PyMOL bundle export.
           EOF
           cat > "$package_root/usr/share/applications/structlens.desktop" <<EOF
           [Desktop Entry]
           Type=Application
           Name=StructLens
-          Comment=Protein structure comparison
+          Comment=Integrated protein sequence and structure comparison
           Exec=/usr/lib/structlens-gui/StructLens
           Icon=structlens
           Terminal=false

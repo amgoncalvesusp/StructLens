@@ -10,24 +10,30 @@ from threading import Event
 from typing import Any
 
 from structlens.application.analysis_service import AnalysisService
+from structlens.application.chart_data import structural_deviation_profile
+from structlens.application.chart_export import export_chart_image, export_chart_xlsx
 from structlens.application.export_service import (
     export_analysis_csv,
     export_analysis_json,
     export_analysis_xlsx,
 )
 from structlens.application.project_state import ProjectState
-from structlens.core.errors import AnalysisCancelledError
+from structlens.core.errors import AnalysisCancelledError, BundleValidationError
 from structlens.core.models import (
     AlignmentMode,
     AnalysisResult,
     AnalysisSettings,
+    ComparisonMode,
     ProteinChain,
     ProteinStructure,
     ResidueId,
 )
 from structlens.core.parsing import load_structure
 from structlens.integrations.pymol.adapter import PyMOLAdapter
+from structlens.integrations.pymol.launcher import PyMOLLauncher
 from structlens.integrations.pymol.selections import selection_name
+from structlens.integrations.pymol_bundle import write_pymol_bundle
+from structlens.integrations.usalign.executable import bundled_executable
 from structlens.plugin.visualization.legends import (
     backbone_rmsd_legend,
     displacement_legend,
@@ -40,13 +46,15 @@ from structlens.plugin.visualization.renderer import (
     VisualizationState,
 )
 
-from .main_panel import GUI_SECTIONS, WORKFLOW_HELP, StructLensPanelModel
+from .main_panel import SCIENTIFIC_SECTIONS, WORKFLOW_HELP, StructLensPanelModel
 from .qt_compat import QtBindings
 
 _RESIDUE_TOKEN = re.compile(r"^(?P<chain>[^:]+):(?P<number>-?\d+)(?P<insertion>[A-Za-z]?)$")
+_STRUCTURES_PAGE_INDEX = SCIENTIFIC_SECTIONS.index("Structures")
 _ANALYSIS_EXECUTOR = ThreadPoolExecutor(
     max_workers=1, thread_name_prefix="structlens-analysis"
 )
+_RESULTS_PAGE_INDEX = SCIENTIFIC_SECTIONS.index("Results")
 
 
 def build_panel(
@@ -97,16 +105,26 @@ class PanelController:
         self._future: Any = None
         self._poll_timer: Any = None
         self._cancel_event = Event()
+        self.chart_export_buttons: list[Any] = []
         self._build_shell()
         self._build_project_page()
-        self._build_alignment_page()
         self._build_mutations_page()
+        self._build_alignment_page()
         self._build_residues_page()
         self._build_visualization_page()
+        self._build_pymol_page()
+        self._build_export_page()
         self._build_results_page()
         self._wire_navigation()
         self._set_status(self.model.status)
         self._update_mode_help(self.mode_combo.currentText())
+        self._update_comparison_help(self.comparison_combo.currentText())
+        self._update_chart_explanation(self.chart_combo.currentText())
+        self.usalign_status.setText(
+            "Bundled backend · Ready"
+            if bundled_executable() is not None
+            else "Bundled backend · not present in this source build; custom/PATH fallback available"
+        )
 
     # ------------------------------------------------------------------ shell
     def _build_shell(self) -> None:
@@ -123,7 +141,7 @@ class PanelController:
         brand = self.w.QVBoxLayout()
         brand.setSpacing(2)
         brand.addWidget(_label(self.w, "STRUCTLENS / EVIDENCE BENCH", "eyebrow"))
-        brand.addWidget(_label(self.w, "Protein structure comparison", "windowTitle"))
+        brand.addWidget(_label(self.w, "Integrated sequence and structure analysis", "windowTitle"))
         header_layout.addLayout(brand)
         header_layout.addStretch(1)
         self.header_status = _label(self.w, "Ready", "statusPill")
@@ -151,7 +169,7 @@ class PanelController:
         self.nav = self.w.QListWidget(self.sidebar)
         self.nav.setObjectName("workflowNav")
         self.nav.setSpacing(4)
-        for section in GUI_SECTIONS:
+        for section in SCIENTIFIC_SECTIONS:
             item = self.w.QListWidgetItem(section)
             item.setToolTip(_page_subtitle(section, standalone=self.command is None))
             self.nav.addItem(item)
@@ -187,7 +205,7 @@ class PanelController:
         self.progress.setFixedWidth(180)
         self.progress.setVisible(False)
         footer_layout.addWidget(self.progress)
-        footer_layout.addWidget(_label(self.w, "v0.1.3 · units are explicit", "footerMeta"))
+        footer_layout.addWidget(_label(self.w, "v0.2.0 · units are explicit", "footerMeta"))
         root.addWidget(footer)
 
         self.compare_button.clicked.connect(self._start_analysis)
@@ -300,8 +318,8 @@ class PanelController:
     # -------------------------------------------------------------- Alignment
     def _build_alignment_page(self) -> None:
         _, content = self._add_page(
-            "Alignment",
-            "Choose the correspondence policy before superposition. Every choice is recorded in the result.",
+            "Structures",
+            "Compare folds and choose the correspondence policy before superposition. The bundled US-align status is recorded in provenance.",
         )
         policy_group = self.w.QGroupBox("Correspondence policy", self.widget)
         policy_layout = self.w.QGridLayout(policy_group)
@@ -325,6 +343,27 @@ class PanelController:
         self.mode_combo.currentTextChanged.connect(self._update_mode_help)
         content.addWidget(policy_group)
 
+        comparison_group = self.w.QGroupBox("Comparison mode", self.widget)
+        comparison_layout = self.w.QGridLayout(comparison_group)
+        comparison_layout.setContentsMargins(18, 20, 18, 18)
+        comparison_layout.setHorizontalSpacing(14)
+        comparison_layout.setVerticalSpacing(8)
+        comparison_layout.addWidget(_label(self.w, "TOPOLOGY", "fieldLabel"), 0, 0)
+        self.comparison_combo = self.w.QComboBox(comparison_group)
+        # The desktop panel currently has one reference and one target source
+        # picker. Keep this selector honest until a multi-target source
+        # collection workflow is promoted into the GUI; the application service
+        # already exposes the v0.2 multi-structure APIs for scripted use.
+        for label, value in (("Pairwise · one reference + one target", ComparisonMode.PAIRWISE.value),):
+            self.comparison_combo.addItem(label, value)
+        comparison_layout.addWidget(self.comparison_combo, 1, 0)
+        self.comparison_help = _label(self.w, "", "helpText")
+        self.comparison_help.setWordWrap(True)
+        comparison_layout.addWidget(self.comparison_help, 1, 1)
+        comparison_layout.setColumnStretch(1, 1)
+        self.comparison_combo.currentTextChanged.connect(self._update_comparison_help)
+        content.addWidget(comparison_group)
+
         thresholds = self.w.QGroupBox("Auto thresholds and refinement", self.widget)
         threshold_layout = self.w.QGridLayout(thresholds)
         threshold_layout.setContentsMargins(18, 20, 18, 18)
@@ -338,10 +377,13 @@ class PanelController:
         self.coverage_spin = self.w.QDoubleSpinBox(thresholds)
         _fraction_spin(self.coverage_spin, 0.70)
         threshold_layout.addWidget(self.coverage_spin, 1, 1)
-        threshold_layout.addWidget(_label(self.w, "US-ALIGN EXECUTABLE", "fieldLabel"), 0, 2)
+        threshold_layout.addWidget(_label(self.w, "US-ALIGN", "fieldLabel"), 0, 2)
+        self.usalign_status = _label(self.w, "Bundled backend · Ready", "fieldMeta")
+        threshold_layout.addWidget(self.usalign_status, 1, 2)
         self.usalign_edit = self.w.QLineEdit(thresholds)
-        self.usalign_edit.setPlaceholderText("USalign on PATH")
-        threshold_layout.addWidget(self.usalign_edit, 1, 2)
+        self.usalign_edit.setPlaceholderText("Optional custom executable (Advanced Settings)")
+        threshold_layout.addWidget(_label(self.w, "CUSTOM EXECUTABLE (ADVANCED)", "fieldLabel"), 4, 0)
+        threshold_layout.addWidget(self.usalign_edit, 5, 0, 1, 3)
         self.refined_check = self.w.QCheckBox("Refine outliers after strict fit", thresholds)
         threshold_layout.addWidget(self.refined_check, 2, 0, 1, 2)
         threshold_layout.addWidget(_label(self.w, "CUTOFF (Å)", "fieldLabel"), 2, 2)
@@ -375,8 +417,8 @@ class PanelController:
     # -------------------------------------------------------------- Mutations
     def _build_mutations_page(self) -> None:
         _, content = self._add_page(
-            "Mutations",
-            "Review substitutions, insertions, deletions, and non-standard residues with descriptive scores.",
+            "Sequences",
+            "Compare amino-acid sequences, map equivalent positions, and inspect mutations and conservation.",
         )
         self.mutation_summary = _label(self.w, "No comparison yet.", "inlineNote")
         content.addWidget(self.mutation_summary)
@@ -422,14 +464,51 @@ class PanelController:
     # ---------------------------------------------------------- Visualization
     def _build_visualization_page(self) -> None:
         _, content = self._add_page(
-            "Visualization",
-            (
-                "Explore filters and legends tied to the correspondence table; 3D rendering is available in the PyMOL plugin."
-                if self.command is None
-                else "Choose a reversible PyMOL view. Filters and legends stay tied to the correspondence table."
-            ),
+            "Charts",
+            "Use authoritative sequence and structure datasets, inspect what each chart means, and route exports through a reproducible workflow.",
         )
-        controls = self.w.QGroupBox("View controls", self.widget)
+        chart_group = self.w.QGroupBox("Scientific chart", self.widget)
+        chart_layout = self.w.QGridLayout(chart_group)
+        chart_layout.setContentsMargins(18, 20, 18, 18)
+        chart_layout.setHorizontalSpacing(14)
+        chart_layout.setVerticalSpacing(10)
+        chart_layout.addWidget(_label(self.w, "PROFILE", "fieldLabel"), 0, 0)
+        self.chart_combo = self.w.QComboBox(chart_group)
+        for label in (
+            "Structural deviation profile",
+            "Mutation / conservation matrix",
+            "Pairwise similarity heatmap",
+            "Sequence–structure relationship",
+            "Structural conservation profile",
+            "Key-residue comparison",
+        ):
+            self.chart_combo.addItem(label)
+        chart_layout.addWidget(self.chart_combo, 1, 0)
+        self.chart_explanation = _label(
+            self.w,
+            "Charts consume the authoritative analysis state. Values include units and remain exportable as data.",
+            "helpText",
+        )
+        self.chart_explanation.setWordWrap(True)
+        chart_layout.addWidget(self.chart_explanation, 1, 1)
+        chart_layout.setColumnStretch(1, 1)
+        self.chart_combo.currentTextChanged.connect(self._update_chart_explanation)
+        content.addWidget(chart_group)
+        note = _label(
+            self.w,
+            "Use the Export page for XLSX, JPEG, or TIFF output. PyMOL-specific filtering and reversible rendering controls remain on the PyMOL page.",
+            "inlineNote",
+        )
+        note.setWordWrap(True)
+        content.addWidget(note)
+
+    # --------------------------------------------------------------- PyMOL
+    def _build_pymol_page(self) -> None:
+        _, content = self._add_page(
+            "PyMOL",
+            "Prepare the current StructLens analysis for interactive 3D exploration in PyMOL.",
+        )
+        controls = self.w.QGroupBox("Visualization controls", self.widget)
         layout = self.w.QGridLayout(controls)
         layout.setContentsMargins(18, 20, 18, 18)
         layout.setHorizontalSpacing(14)
@@ -491,24 +570,88 @@ class PanelController:
         content.addWidget(self.legend_label)
         self.visualization_count = _label(self.w, "0 rows selected", "inlineNote")
         content.addWidget(self.visualization_count)
+        integration = self.w.QGroupBox("PyMOL integration", self.widget)
+        integration_layout = self.w.QGridLayout(integration)
+        integration_layout.setContentsMargins(18, 20, 18, 18)
+        integration_layout.setHorizontalSpacing(14)
+        integration_layout.setVerticalSpacing(10)
+        integration_layout.addWidget(_label(self.w, "STATUS", "fieldLabel"), 0, 0)
+        self.pymol_status = _label(self.w, "Ready to export", "helpText")
+        self.pymol_status.setWordWrap(True)
+        integration_layout.addWidget(self.pymol_status, 1, 0, 1, 3)
+        integration_layout.addWidget(_label(self.w, "EXECUTABLE (OPTIONAL)", "fieldLabel"), 2, 0)
+        self.pymol_edit = self.w.QLineEdit(integration)
+        self.pymol_edit.setPlaceholderText("Configured PyMOL executable or PATH-resolved command")
+        self.pymol_edit.textChanged.connect(lambda _text: self._refresh_pymol_status())
+        integration_layout.addWidget(self.pymol_edit, 3, 0, 1, 3)
         actions = self.w.QHBoxLayout()
+        open_button = _button(self.w, "Open in PyMOL", "primaryButton")
+        open_button.clicked.connect(self._open_in_pymol)
+        actions.addWidget(open_button)
+        export_bundle = _button(self.w, "Export for PyMOL…", "secondaryButton")
+        export_bundle.clicked.connect(self._export_pymol_bundle)
+        actions.addWidget(export_bundle)
+        plugin_help = _button(self.w, "Plugin installation instructions", "secondaryButton")
+        plugin_help.clicked.connect(
+            lambda: self._set_status(
+                "Install StructLens-PyMOL from the amgoncalvesusp/pymol-plugins GitHub release, then open the bundle in PyMOL."
+            )
+        )
+        actions.addWidget(plugin_help)
         actions.addStretch(1)
+        integration_layout.addLayout(actions, 4, 0, 1, 3)
+        content.addWidget(integration)
+        host_actions = self.w.QHBoxLayout()
+        host_actions.addStretch(1)
         if self.command is None:
-            actions.addWidget(
+            host_actions.addWidget(
                 _label(
                     self.w,
-                    "Standalone mode · filters and legends are inspectable here; open the plugin for 3D rendering.",
+                    "Standalone mode · Open in PyMOL creates a validated bundle and launches the external application when configured.",
                     "fieldMeta",
                 )
             )
         else:
             reset = _button(self.w, "Reset StructLens view", "secondaryButton")
             reset.clicked.connect(self._reset_visualization)
-            actions.addWidget(reset)
+            host_actions.addWidget(reset)
             apply_button = _button(self.w, "Apply to PyMOL", "primaryButton")
             apply_button.clicked.connect(self._apply_visualization)
-            actions.addWidget(apply_button)
-        content.addLayout(actions)
+            host_actions.addWidget(apply_button)
+        content.addLayout(host_actions)
+
+    # --------------------------------------------------------------- Export
+    def _build_export_page(self) -> None:
+        _, content = self._add_page(
+            "Export",
+            "Write the current evidence state as tabular data, chart data, or a portable PyMOL interchange bundle.",
+        )
+        exports = self.w.QGroupBox("Evidence exports", self.widget)
+        export_layout = self.w.QHBoxLayout(exports)
+        export_layout.setContentsMargins(18, 20, 18, 18)
+        for label, callback in (
+            ("XLSX", self._export_xlsx),
+            ("CSV", self._export_csv),
+            ("JSON", self._export_json),
+            ("Chart XLSX", self._export_chart_xlsx),
+            ("Chart JPEG", lambda: self._export_chart_image("jpeg", 300)),
+            ("Chart TIFF", lambda: self._export_chart_image("tiff", 600)),
+        ):
+            button = _button(self.w, f"Export {label}…", "secondaryButton")
+            button.clicked.connect(callback)
+            if label.startswith("Chart"):
+                self.chart_export_buttons.append(button)
+            export_layout.addWidget(button)
+        export_layout.addStretch(1)
+        content.addWidget(exports)
+        self._update_chart_export_state(self.chart_combo.currentText())
+        note = _label(
+            self.w,
+            "The selected chart profile controls chart exports. Non-deviation profiles remain available as structured data through the application API.",
+            "inlineNote",
+        )
+        note.setWordWrap(True)
+        content.addWidget(note)
 
     # ---------------------------------------------------------------- Results
     def _build_results_page(self) -> None:
@@ -532,6 +675,7 @@ class PanelController:
         for row, (key, title, unit) in enumerate(
             (
                 ("sequence_identity", "Sequence identity", "fraction"),
+                ("sequence_similarity", "Sequence similarity", "fraction"),
                 ("sequence_coverage", "Sequence coverage", "fraction"),
                 ("strict_rmsd_angstrom", "Strict Cα RMSD", "Å"),
                 ("refined_rmsd_angstrom", "Refined Cα RMSD", "Å"),
@@ -547,19 +691,6 @@ class PanelController:
             self.result_labels[key] = value
         metric_layout.setColumnStretch(1, 1)
         content.addWidget(metrics)
-        exports = self.w.QGroupBox("Exports", self.widget)
-        export_layout = self.w.QHBoxLayout(exports)
-        export_layout.setContentsMargins(18, 20, 18, 18)
-        for label, _suffix, callback in (
-            ("XLSX", ".xlsx", self._export_xlsx),
-            ("CSV", ".csv", self._export_csv),
-            ("JSON", ".json", self._export_json),
-        ):
-            button = _button(self.w, f"Export {label}…", "secondaryButton")
-            button.clicked.connect(callback)
-            export_layout.addWidget(button)
-        export_layout.addStretch(1)
-        content.addWidget(exports)
 
     # --------------------------------------------------------------- bindings
     def _wire_navigation(self) -> None:
@@ -766,7 +897,7 @@ class PanelController:
             )
         except ValueError as exc:
             self._show_error(str(exc))
-            self.nav.setCurrentRow(1)
+            self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
             return
         self.model = self.model.with_busy("Comparing structures…")
         self._set_busy(True)
@@ -823,7 +954,7 @@ class PanelController:
         self._set_busy(False)
         self._populate_result(result)
         self._set_status(f"Analysis complete · {len(result.correspondences)} aligned positions")
-        self.nav.setCurrentRow(5)
+        self.nav.setCurrentRow(_RESULTS_PAGE_INDEX)
 
     def _analysis_failed(self, message: str) -> None:
         self.model = self.model.with_error(f"Comparison failed: {message}")
@@ -942,6 +1073,7 @@ class PanelController:
         self.result_decision.setText(f"<b>{result.alignment_decision}</b><br>Reference: {result.reference_id} · Target: {result.target_id}")
         values = {
             "sequence_identity": f"{result.sequence_identity:.3f}",
+            "sequence_similarity": _number(result.sequence_similarity),
             "sequence_coverage": f"{result.sequence_coverage:.3f}",
             "strict_rmsd_angstrom": _number(result.strict_rmsd_angstrom),
             "refined_rmsd_angstrom": _number(result.refined_rmsd_angstrom),
@@ -1045,6 +1177,7 @@ class PanelController:
                 )
                 if value is not None
             },
+            comparison_mode=ComparisonMode(str(self.comparison_combo.currentData() or ComparisonMode.PAIRWISE.value)),
         ).with_source_hashes()
         try:
             project.save(path)
@@ -1059,6 +1192,7 @@ class PanelController:
         try:
             project = ProjectState.load(path)
             self._apply_project_settings(project.settings)
+            self._set_combo_value(self.comparison_combo, project.comparison_mode.value)
             self._apply_visualization_payload(project.visualization_state)
             if project.reference_source:
                 self._load_source("reference", Path(project.reference_source))
@@ -1082,7 +1216,7 @@ class PanelController:
                 self.model = self.model.with_analysis(project.analysis_results[-1])
                 self._populate_result(project.analysis_results[-1])
             self._set_status(f"Project opened · {Path(path).name}")
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, BundleValidationError) as exc:
             self._show_error(f"Could not open project: {exc}")
 
     def _apply_project_settings(self, settings: AnalysisSettings) -> None:
@@ -1127,6 +1261,108 @@ class PanelController:
     def _export_json(self) -> None:
         self._export("json", export_analysis_json, "JSON")
 
+    def _export_pymol_bundle(self) -> None:
+        result = self.model.analysis
+        if result is None:
+            self._show_error("Run a comparison before exporting a PyMOL bundle.")
+            return
+        if self.reference_structure is None or self.target_structure is None:
+            self._show_error("Load reference and target coordinate files before exporting a PyMOL bundle.")
+            return
+        default_name = f"StructLens_{result.reference_id}_pairwise.structlens-pymol"
+        path, _ = self.w.QFileDialog.getSaveFileName(
+            self.widget,
+            "Export StructLens-PyMOL bundle",
+            default_name,
+            "StructLens-PyMOL bundle (*.structlens-pymol)",
+        )
+        if not path:
+            return
+        try:
+            write_pymol_bundle(
+                path,
+                reference=self.reference_structure,
+                targets={result.target_id: self.target_structure},
+                analysis=result,
+                provenance=dict(result.provenance),
+            )
+            self._set_status(f"Validated PyMOL bundle written · {Path(path).name}")
+        except (OSError, ValueError, BundleValidationError) as exc:
+            self._show_error(f"Could not export PyMOL bundle: {exc}")
+
+    def _open_in_pymol(self) -> None:
+        result = self.model.analysis
+        if result is None:
+            self._show_error("Run a comparison before opening PyMOL.")
+            return
+        if self.reference_structure is None or self.target_structure is None:
+            self._show_error("Load reference and target coordinate files before opening PyMOL.")
+            return
+        with NamedTemporaryFile(prefix="structlens_", suffix=".structlens-pymol", delete=False) as handle:
+            bundle_path = Path(handle.name)
+        self._temporary_paths.append(bundle_path)
+        try:
+            write_pymol_bundle(
+                bundle_path,
+                reference=self.reference_structure,
+                targets={result.target_id: self.target_structure},
+                analysis=result,
+                provenance=dict(result.provenance),
+            )
+            launcher = PyMOLLauncher(self.pymol_edit.text().strip() or None)
+            launch = launcher.launch_bundle(bundle_path)
+            self._set_status(
+                f"PyMOL launched with validated bundle · {bundle_path.name}"
+                if launch.process_id is not None
+                else f"Validated bundle prepared · {bundle_path.name}"
+            )
+            self._refresh_pymol_status()
+        except Exception as exc:
+            bundle_path.unlink(missing_ok=True)
+            self._temporary_paths = [path for path in self._temporary_paths if path != bundle_path]
+            self._show_error(f"Could not open in PyMOL: {exc}")
+
+    def _export_chart_xlsx(self) -> None:
+        result = self.model.analysis
+        if result is None:
+            self._show_error("Run a comparison before exporting chart data.")
+            return
+        if self.chart_combo.currentText() != "Structural deviation profile":
+            self._show_error("Select Structural deviation profile before exporting chart data.")
+            return
+        path, _ = self.w.QFileDialog.getSaveFileName(
+            self.widget, "Export chart data", "structlens_chart.xlsx", "XLSX (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            export_chart_xlsx(structural_deviation_profile(result), path)
+            self._set_status(f"Chart data exported · {Path(path).name}")
+        except (OSError, ValueError) as exc:
+            self._show_error(f"Could not export chart data: {exc}")
+
+    def _export_chart_image(self, suffix: str, dpi: int) -> None:
+        result = self.model.analysis
+        if result is None:
+            self._show_error("Run a comparison before exporting a chart image.")
+            return
+        if self.chart_combo.currentText() != "Structural deviation profile":
+            self._show_error("Select Structural deviation profile before exporting a chart image.")
+            return
+        path, _ = self.w.QFileDialog.getSaveFileName(
+            self.widget,
+            f"Export {suffix.upper()} chart ({dpi} dpi)",
+            f"structlens_chart.{suffix}",
+            f"{suffix.upper()} (*.{suffix})",
+        )
+        if not path:
+            return
+        try:
+            export_chart_image(structural_deviation_profile(result), path, dpi=dpi)
+            self._set_status(f"Chart image exported · {Path(path).name} · {dpi} dpi")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_error(f"Could not export chart image: {exc}")
+
     def _export(self, suffix: str, exporter: Any, label: str) -> None:
         result = self.model.analysis
         if result is None:
@@ -1159,11 +1395,57 @@ class PanelController:
         self.mode_help.setText(WORKFLOW_HELP.get(key, WORKFLOW_HELP["Auto"]))
         self.manual_group.setVisible(key == "Manual")
 
+    def _update_comparison_help(self, label: str) -> None:
+        key = label.split(" ·", 1)[0]
+        self.comparison_help.setText(
+            {
+                "Pairwise": "One reference and one target. Use it for detailed residue inspection and focused WT/mutant analysis.",
+            }.get(key, "Choose a comparison topology to see its outputs and computational implications.")
+        )
+
+    def _update_chart_explanation(self, label: str) -> None:
+        explanations = {
+            "Structural deviation profile": "Reference position on X; selectable Cα displacement, backbone RMSD, side-chain RMSD, or local RMSD on Y (Å).",
+            "Mutation / conservation matrix": "Rows are structures and columns are reference-aligned positions; cell text preserves mutation identity.",
+            "Pairwise similarity heatmap": "Mirrors one stored value per pair for sequence identity, TM-score, RMSD, or key-site RMSD.",
+            "Sequence–structure relationship": "Sequence identity (%) versus TM-score by default; points link back to a selected pair.",
+            "Structural conservation profile": "Cα positional variability (Å) with a separate position-coverage track.",
+            "Key-residue comparison": "Explicit key reference residues compared across targets with units and missing mappings visible.",
+        }
+        self.chart_explanation.setText(explanations.get(label, "Charts consume the authoritative analysis state."))
+        self._update_chart_export_state(label)
+
+    def _update_chart_export_state(self, label: str) -> None:
+        """Keep export controls aligned with the chart profile they produce."""
+
+        supported = label == "Structural deviation profile"
+        for button in self.chart_export_buttons:
+            button.setEnabled(supported)
+            if supported:
+                button.setToolTip("Export the selected structural deviation profile.")
+            else:
+                button.setToolTip(
+                    "This chart profile is available as structured data in the application API; "
+                    "GUI image/XLSX export is currently implemented for Structural deviation profile."
+                )
+
     def _set_combo_value(self, combo: Any, value: str) -> None:
         for index in range(combo.count()):
             if str(combo.itemData(index)) == value or combo.itemText(index) == value:
                 combo.setCurrentIndex(index)
                 return
+
+    def _refresh_pymol_status(self) -> None:
+        try:
+            executable = PyMOLLauncher(self.pymol_edit.text().strip() or None).locate()
+        except Exception:
+            self.pymol_status.setText(
+                "Ready to export · PyMOL executable not configured or not found. Export remains available even without PyMOL."
+            )
+            return
+        self.pymol_status.setText(
+            f"Ready to open in PyMOL · executable resolved to {executable.name}. Scientific calculations stay in StructLens."
+        )
 
     def close(self) -> None:
         if self._future is not None:
@@ -1258,15 +1540,17 @@ def _configure_table(table: Any, widgets: Any) -> None:
 def _page_subtitle(section: str, *, standalone: bool = False) -> str:
     return {
         "Project": "Choose sources and chains.",
-        "Alignment": "Choose and explain correspondence.",
-        "Mutations": "Review sequence changes.",
+        "Sequences": "Review sequence identity, mutations, and conservation.",
+        "Structures": "Choose structural comparison and alignment settings.",
         "Residues": "Inspect mapped positions.",
-        "Visualization": (
-            "Inspect filters and legends; 3D rendering is available in the plugin."
+        "Charts": (
+            "Inspect chart-ready scientific profiles and visual filters."
             if standalone
-            else "Apply a reversible PyMOL view."
+            else "Apply a reversible PyMOL view from linked chart selections."
         ),
+        "PyMOL": "Prepare a validated interchange bundle for the companion plugin.",
         "Results": "Review and export metrics.",
+        "Export": "Write evidence tables, chart data, and interchange bundles.",
     }[section]
 
 

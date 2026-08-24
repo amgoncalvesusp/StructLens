@@ -6,7 +6,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt_widgets = pytest.importorskip("PySide6.QtWidgets")
 
-from structlens.plugin.gui.main_panel import build_qt_panel  # noqa: E402
+from structlens.core.models import AnalysisResult  # noqa: E402
+from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -21,12 +22,63 @@ def test_qt_panel_builds_operate_workflow(application) -> None:
     controller = panel._structlens_controller
 
     assert panel.objectName() == "structlensPanel"
-    assert controller.nav.count() == 6
-    assert controller.pages.count() == 6
+    assert controller.nav.count() == 8
+    assert controller.pages.count() == 8
     assert controller.compare_button.text() == "Compare"
     assert controller.mode_combo.count() == 4
+    assert controller.comparison_combo.count() == 1
+    assert controller.comparison_combo.currentData() == "pairwise"
     assert controller.mutation_table.columnCount() == 8
     assert controller.residue_table.columnCount() == 10
+    assert controller.nav.item(5).text() == "PyMOL"
+    assert controller.nav.item(7).text() == "Export"
+
+    controller.close()
+    panel.deleteLater()
+
+
+def test_chart_exports_follow_the_selected_profile(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+
+    assert controller.chart_export_buttons
+    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+
+    controller.chart_combo.setCurrentText("Mutation / conservation matrix")
+    assert all(not button.isEnabled() for button in controller.chart_export_buttons)
+
+    controller.chart_combo.setCurrentText("Structural deviation profile")
+    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+
+    controller.close()
+    panel.deleteLater()
+
+
+def test_analysis_and_manual_recovery_land_on_the_relevant_pages(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    controller._show_error = lambda _: None
+
+    controller._analysis_finished(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=0.0,
+            sequence_coverage=0.0,
+            alignment_decision="test",
+        )
+    )
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Results")
+
+    fixture = Path("tests/fixtures/parsing/numbering_altloc.pdb")
+    assert controller._load_source("reference", fixture) is True
+    assert controller._load_source("target", fixture) is True
+    controller.mode_combo.setCurrentIndex(3)
+    controller.manual_edit.setPlainText("invalid pair")
+    controller._start_analysis()
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Structures")
 
     controller.close()
     panel.deleteLater()
