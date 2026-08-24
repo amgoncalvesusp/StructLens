@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -183,6 +184,7 @@ def export_v03_xlsx(
     msa_columns: tuple[MSAColumn, ...] = (),
     interaction_differences: tuple[InteractionDifference, ...] = (),
     site_metrics: tuple[SiteMetrics, ...] = (),
+    site_interaction_fingerprints: tuple[Mapping[str, Any], ...] = (),
     distance_matrix: DistanceDifferenceMatrix | None = None,
     evidence_cards: tuple[EvidenceCard, ...] = (),
     provenance: tuple[str, ...] = (),
@@ -215,6 +217,37 @@ def export_v03_xlsx(
                 valid += 1
         frequencies.append([column.index, column.reference_label, *(counts[letter] / valid if valid else None for letter in counts)])
 
+    insertions = workbook.create_sheet("Insertions")
+    insertions.append(
+        [
+            "Alignment column",
+            "Reference label",
+            "Structure",
+            "Sequence index",
+            "Amino acid",
+            "Residue",
+        ]
+    )
+    for column in msa_columns:
+        # A reference gap is an alignment column, not an invented source
+        # residue number. Export each mapped target residue in that column
+        # while retaining the reference-relative label (for example A:163+1).
+        if column.reference_residue is not None:
+            continue
+        for cell in column.cells:
+            if cell.residue is None or cell.character in {"-", "."}:
+                continue
+            insertions.append(
+                [
+                    column.index,
+                    column.reference_label,
+                    cell.structure_id,
+                    cell.residue.sequence_index,
+                    cell.character,
+                    _residue_label(cell.residue.residue_id),
+                ]
+            )
+
     interactions = workbook.create_sheet("Interaction Differences")
     interactions.append(["Type", "Reference position A", "Reference position B", "Change", "Reference distance (Å)", "Target distance (Å)", "Evidence mode"])
     for difference in interaction_differences:
@@ -230,6 +263,33 @@ def export_v03_xlsx(
     fingerprints.append(["Site", "Structure", "Centroid displacement (Å)", "Radius of gyration (Å)", "Polar fraction", "Charged fraction"])
     for metric in site_metrics:
         fingerprints.append([metric.site_id, metric.structure_id, metric.centroid_displacement_angstrom, metric.radius_of_gyration_angstrom, metric.polar_residue_fraction, metric.charged_residue_fraction])
+
+    site_fingerprints = workbook.create_sheet("Site Interaction Fingerprints")
+    site_fingerprints.append(
+        [
+            "Site",
+            "Structure",
+            "Interaction type",
+            "Reference count",
+            "Target count",
+            "Conserved count",
+            "Gained count",
+            "Lost count",
+        ]
+    )
+    for fingerprint in site_interaction_fingerprints:
+        site_fingerprints.append(
+            [
+                fingerprint.get("site_id"),
+                fingerprint.get("structure_id"),
+                fingerprint.get("interaction_type"),
+                fingerprint.get("reference_count"),
+                fingerprint.get("target_count"),
+                fingerprint.get("conserved_count"),
+                fingerprint.get("gained_count"),
+                fingerprint.get("lost_count"),
+            ]
+        )
 
     if distance_matrix is not None:
         distances = workbook.create_sheet("Distance Difference Matrix")

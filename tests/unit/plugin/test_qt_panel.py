@@ -6,7 +6,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt_widgets = pytest.importorskip("PySide6.QtWidgets")
 
-from structlens.core.models import AnalysisResult  # noqa: E402
+from structlens.application.msa_service import align_sequences  # noqa: E402
+from structlens.core.models import AnalysisResult, ResidueId  # noqa: E402
+from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef  # noqa: E402
 from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
 
 
@@ -22,16 +24,18 @@ def test_qt_panel_builds_operate_workflow(application) -> None:
     controller = panel._structlens_controller
 
     assert panel.objectName() == "structlensPanel"
-    assert controller.nav.count() == 8
-    assert controller.pages.count() == 8
+    assert controller.nav.count() == 9
+    assert controller.pages.count() == 9
     assert controller.compare_button.text() == "Compare"
     assert controller.mode_combo.count() == 4
     assert controller.comparison_combo.count() == 1
     assert controller.comparison_combo.currentData() == "pairwise"
     assert controller.mutation_table.columnCount() == 8
     assert controller.residue_table.columnCount() == 10
-    assert controller.nav.item(5).text() == "PyMOL"
-    assert controller.nav.item(7).text() == "Export"
+    assert controller.msa_table.columnCount() == 3
+    assert controller.nav.item(4).text() == "Sites"
+    assert controller.nav.item(6).text() == "PyMOL"
+    assert controller.nav.item(8).text() == "Export"
 
     controller.close()
     panel.deleteLater()
@@ -113,6 +117,114 @@ def test_failed_source_reload_clears_previous_structure(application) -> None:
     assert controller._load_source("reference", Path("missing-input.pdb")) is False
     assert controller.reference_structure is None
     assert controller.reference_chain_combo.count() == 0
+
+    controller.close()
+    panel.deleteLater()
+
+
+def test_msa_viewer_renders_authoritative_alignment_rows(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    def sequence(identifier: str, value: str) -> AnalysisSequence:
+        return AnalysisSequence(
+            identifier,
+            "A",
+            value,
+            tuple(SequenceResidueRef(index, character, ResidueId(identifier, "1", "A", str(index), None, "ALA")) for index, character in enumerate(value)),
+            "derived",
+        )
+    alignment = align_sequences((sequence("ref", "ABC"), sequence("target", "ABCGH")), MSASettings())
+    controller.set_msa_result(alignment)
+    assert controller.msa_table.rowCount() == 2
+    assert controller.msa_table.item(0, 1).text() == "ABC--"
+    assert "insertion columns" in controller.msa_summary_label.text()
+    controller.close()
+    panel.deleteLater()
+
+
+def test_v03_xlsx_export_routes_staged_records(application, monkeypatch, tmp_path: Path) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    controller.model = controller.model.with_analysis(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=1.0,
+            alignment_decision="test",
+        )
+    )
+    output = tmp_path / "result.xlsx"
+    controller.set_v03_export_records(provenance=("fixture",))
+    called: dict[str, object] = {}
+    monkeypatch.setattr(
+        controller.w.QFileDialog,
+        "getSaveFileName",
+        lambda *_args: (str(output), "XLSX (*.xlsx)"),
+    )
+    monkeypatch.setattr(
+        "structlens.plugin.gui.qt_panel.export_v03_xlsx",
+        lambda path, **kwargs: called.update(path=str(path), **kwargs),
+    )
+    controller._export_xlsx()
+    assert called == {"path": str(output), "provenance": ("fixture",)}
+    controller.close()
+    panel.deleteLater()
+
+
+def test_pymol_bundle_export_forwards_only_staged_v03_payloads(
+    application, monkeypatch, tmp_path: Path
+) -> None:
+    panel = build_qt_panel(command=None)
+    controller = panel._structlens_controller
+    fixture = Path("tests/fixtures/parsing/numbering_altloc.pdb")
+    assert controller._load_source("reference", fixture) is True
+    assert controller._load_source("target", fixture) is True
+
+    controller.model = controller.model.with_analysis(
+        AnalysisResult(
+            reference_id="reference",
+            target_id="target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=1.0,
+            alignment_decision="test",
+        )
+    )
+    assert all(value is None for value in controller._v03_bundle_kwargs().values())
+
+    payloads = {
+        "msa_summary": {"columns": [{"index": 0}]},
+        "conservation": {"columns": [{"reference_label": "A:100"}]},
+        "interactions": {"differences": []},
+        "sites": {"metrics": []},
+        "evidence": {"cards": []},
+        "vectors": {"vectors": []},
+    }
+    controller.set_v03_bundle_payloads(**payloads)
+    forwarded: dict[str, object] = {}
+
+    def fake_write_bundle(output_path, **kwargs):
+        forwarded.update(kwargs)
+        return Path(output_path)
+
+    monkeypatch.setattr(
+        "structlens.plugin.gui.qt_panel.write_pymol_bundle", fake_write_bundle
+    )
+    output = tmp_path / "analysis.structlens-pymol"
+    monkeypatch.setattr(
+        controller.w.QFileDialog,
+        "getSaveFileName",
+        lambda *_args: (str(output), "StructLens-PyMOL bundle (*.structlens-pymol)"),
+    )
+
+    controller._export_pymol_bundle()
+
+    for name, payload in payloads.items():
+        assert forwarded[name] == payload
 
     controller.close()
     panel.deleteLater()

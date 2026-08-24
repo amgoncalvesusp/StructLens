@@ -37,6 +37,7 @@ SCIENTIFIC_SECTIONS = (
     "Sequences",
     "Structures",
     "Residues",
+    "Sites",
     "Charts",
     "PyMOL",
     "Results",

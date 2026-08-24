@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -16,6 +17,7 @@ from structlens.application.export_service import (
     export_analysis_csv,
     export_analysis_json,
     export_analysis_xlsx,
+    export_v03_xlsx,
 )
 from structlens.application.project_state import ProjectState
 from structlens.core.errors import AnalysisCancelledError, BundleValidationError
@@ -28,6 +30,7 @@ from structlens.core.models import (
     ProteinStructure,
     ResidueId,
 )
+from structlens.core.msa import MultipleSequenceAlignment
 from structlens.core.parsing import load_structure
 from structlens.integrations.pymol.adapter import PyMOLAdapter
 from structlens.integrations.pymol.launcher import PyMOLLauncher
@@ -107,11 +110,24 @@ class PanelController:
         self._poll_timer: Any = None
         self._cancel_event = Event()
         self.chart_export_buttons: list[Any] = []
+        # v0.3 scientific services own these calculations.  The GUI only
+        # retains JSON-ready payloads supplied by the orchestration layer so
+        # the same authoritative values can be handed to PyMOL.
+        self._v03_bundle_payloads: dict[str, Mapping[str, Any] | None] = {
+            "msa_summary": None,
+            "conservation": None,
+            "interactions": None,
+            "sites": None,
+            "evidence": None,
+            "vectors": None,
+        }
+        self._v03_export_records: dict[str, Any] = {}
         self._build_shell()
         self._build_project_page()
         self._build_mutations_page()
         self._build_alignment_page()
         self._build_residues_page()
+        self._build_sites_page()
         self._build_visualization_page()
         self._build_pymol_page()
         self._build_export_page()
@@ -436,6 +452,47 @@ class PanelController:
         _configure_table(self.mutation_table, self.w)
         self.mutation_table.cellDoubleClicked.connect(self._focus_mutation)
         content.addWidget(self.mutation_table, 1)
+        msa_group = self.w.QGroupBox("Multiple Sequence Alignment", self.widget)
+        msa_layout = self.w.QVBoxLayout(msa_group)
+        msa_layout.setContentsMargins(18, 16, 18, 16)
+        self.msa_summary_label = _label(
+            self.w,
+            "No MSA result loaded. Run the MSA service and pass its immutable result to set_msa_result().",
+            "inlineNote",
+        )
+        self.msa_summary_label.setWordWrap(True)
+        msa_layout.addWidget(self.msa_summary_label)
+        self.msa_table = self.w.QTableWidget(0, 3, msa_group)
+        self.msa_table.setHorizontalHeaderLabels(["Structure", "Aligned sequence", "Source"])
+        _configure_table(self.msa_table, self.w)
+        self.msa_table.setMinimumHeight(150)
+        msa_layout.addWidget(self.msa_table, 1)
+        msa_layout.addWidget(
+            _label(
+                self.w,
+                "Alignment columns retain reference-relative insertion labels; conservation excludes gaps and ambiguous residues from entropy.",
+                "helpText",
+            )
+        )
+        content.addWidget(msa_group, 1)
+
+    def set_msa_result(self, alignment: MultipleSequenceAlignment | None) -> None:
+        """Display an authoritative MSA without recalculating its values."""
+
+        self.msa_table.setRowCount(0)
+        if alignment is None:
+            self.msa_summary_label.setText("MSA unavailable.")
+            return
+        self.msa_table.setRowCount(len(alignment.aligned_rows))
+        for row_index, (structure_id, row) in enumerate(alignment.aligned_rows):
+            source = next((sequence.source for sequence in alignment.sequences if sequence.structure_id == structure_id), "unknown")
+            self.msa_table.setItem(row_index, 0, self.w.QTableWidgetItem(structure_id))
+            self.msa_table.setItem(row_index, 1, self.w.QTableWidgetItem(row))
+            self.msa_table.setItem(row_index, 2, self.w.QTableWidgetItem(source))
+        self.msa_summary_label.setText(
+            f"{len(alignment.aligned_rows)} sequences · {len(alignment.columns)} alignment columns · "
+            f"{sum(column.reference_residue is None for column in alignment.columns)} reference-relative insertion columns."
+        )
 
     # --------------------------------------------------------------- Residues
     def _build_residues_page(self) -> None:
@@ -478,6 +535,60 @@ class PanelController:
         self.evidence_card_label.setWordWrap(True)
         evidence_layout.addWidget(self.evidence_card_label)
         content.addWidget(evidence_group)
+
+    # ---------------------------------------------------------- Visualization
+    def _build_sites_page(self) -> None:
+        _, content = self._add_page(
+            "Sites",
+            "Define active sites or ligand-centered regions and compare coverage, geometry, exposure, and interaction fingerprints.",
+        )
+        site_group = self.w.QGroupBox("Site definition", self.widget)
+        site_layout = self.w.QGridLayout(site_group)
+        site_layout.setContentsMargins(18, 16, 18, 16)
+        site_layout.setHorizontalSpacing(12)
+        site_layout.setVerticalSpacing(8)
+        self.site_mode_combo = self.w.QComboBox(site_group)
+        for label, value in (
+            ("Key residues", "key_residues"),
+            ("Ligand radius", "ligand_radius"),
+            ("Residue radius", "residue_radius"),
+        ):
+            self.site_mode_combo.addItem(label, value)
+        site_layout.addWidget(_label(self.w, "DEFINITION", "fieldLabel"), 0, 0)
+        site_layout.addWidget(self.site_mode_combo, 1, 0)
+        self.site_residues_edit = self.w.QLineEdit(site_group)
+        self.site_residues_edit.setPlaceholderText("A:70, A:73, A:166")
+        site_layout.addWidget(_label(self.w, "REFERENCE POSITIONS", "fieldLabel"), 0, 1)
+        site_layout.addWidget(self.site_residues_edit, 1, 1)
+        self.site_radius_spin = self.w.QDoubleSpinBox(site_group)
+        self.site_radius_spin.setRange(0.1, 20.0)
+        self.site_radius_spin.setValue(5.0)
+        self.site_radius_spin.setSuffix(" Å")
+        site_layout.addWidget(_label(self.w, "RADIUS", "fieldLabel"), 0, 2)
+        site_layout.addWidget(self.site_radius_spin, 1, 2)
+        self.site_define_button = _button(self.w, "Define site", "secondaryButton")
+        self.site_define_button.clicked.connect(self._define_site_from_controls)
+        site_layout.addWidget(self.site_define_button, 1, 3)
+        self.site_status_label = _label(
+            self.w,
+            "Site metrics appear after an analysis service run; this panel never estimates them locally.",
+            "inlineNote",
+        )
+        self.site_status_label.setWordWrap(True)
+        site_layout.addWidget(self.site_status_label, 2, 0, 1, 4)
+        content.addWidget(site_group)
+
+        metrics = self.w.QGroupBox("Authoritative site metrics", self.widget)
+        metrics_layout = self.w.QVBoxLayout(metrics)
+        metrics_layout.setContentsMargins(18, 16, 18, 16)
+        metrics_layout.addWidget(
+            _label(
+                self.w,
+                "Coverage, global-frame/site-fitted RMSD, SASA (Å²), atomic envelope volume (Å³), and interaction fingerprints are read from the site service result.",
+                "helpText",
+            )
+        )
+        content.addWidget(metrics)
 
     # ---------------------------------------------------------- Visualization
     def _build_visualization_page(self) -> None:
@@ -525,34 +636,6 @@ class PanelController:
         )
         note.setWordWrap(True)
         content.addWidget(note)
-
-        site_group = self.w.QGroupBox("Sites · active-site or ligand-defined context", self.widget)
-        site_layout = self.w.QGridLayout(site_group)
-        site_layout.setContentsMargins(18, 16, 18, 16)
-        site_layout.setHorizontalSpacing(12)
-        site_layout.setVerticalSpacing(8)
-        self.site_mode_combo = self.w.QComboBox(site_group)
-        for label, value in (("Key residues", "key_residues"), ("Ligand radius", "ligand_radius"), ("Residue radius", "residue_radius")):
-            self.site_mode_combo.addItem(label, value)
-        site_layout.addWidget(_label(self.w, "DEFINITION", "fieldLabel"), 0, 0)
-        site_layout.addWidget(self.site_mode_combo, 1, 0)
-        self.site_residues_edit = self.w.QLineEdit(site_group)
-        self.site_residues_edit.setPlaceholderText("A:70, A:73, A:166")
-        site_layout.addWidget(_label(self.w, "REFERENCE POSITIONS", "fieldLabel"), 0, 1)
-        site_layout.addWidget(self.site_residues_edit, 1, 1)
-        self.site_radius_spin = self.w.QDoubleSpinBox(site_group)
-        self.site_radius_spin.setRange(0.1, 20.0)
-        self.site_radius_spin.setValue(5.0)
-        self.site_radius_spin.setSuffix(" Å")
-        site_layout.addWidget(_label(self.w, "RADIUS", "fieldLabel"), 0, 2)
-        site_layout.addWidget(self.site_radius_spin, 1, 2)
-        self.site_define_button = _button(self.w, "Define site", "secondaryButton")
-        self.site_define_button.clicked.connect(self._define_site_from_controls)
-        site_layout.addWidget(self.site_define_button, 1, 3)
-        self.site_status_label = _label(self.w, "Site metrics appear after an analysis service run; this panel never estimates them locally.", "inlineNote")
-        self.site_status_label.setWordWrap(True)
-        site_layout.addWidget(self.site_status_label, 2, 0, 1, 4)
-        content.addWidget(site_group)
 
     # --------------------------------------------------------------- PyMOL
     def _build_pymol_page(self) -> None:
@@ -1310,7 +1393,73 @@ class PanelController:
         self._update_legend()
 
     # ---------------------------------------------------------------- exports
+    def set_v03_export_records(self, **records: Any) -> None:
+        """Stage authoritative v0.3 records for the XLSX exporter.
+
+        Scientific services calculate these records; the GUI only stores a
+        shallow copy and routes them to ``export_v03_xlsx`` when requested.
+        """
+
+        self._v03_export_records = dict(records)
+
+    def set_v03_bundle_payloads(
+        self,
+        *,
+        msa_summary: Mapping[str, Any] | None = None,
+        conservation: Mapping[str, Any] | None = None,
+        interactions: Mapping[str, Any] | None = None,
+        sites: Mapping[str, Any] | None = None,
+        evidence: Mapping[str, Any] | None = None,
+        vectors: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Stage authoritative v0.3 payloads for the next PyMOL export.
+
+        The GUI deliberately accepts already calculated, JSON-ready mappings
+        rather than invoking a scientific service.  ``None`` means that the
+        corresponding analysis is unavailable and the bundle writer will
+        omit that optional entry instead of fabricating an empty result.
+        Shallow copies prevent later top-level mutations by a producer from
+        changing the staged export.
+        """
+
+        payloads = {
+            "msa_summary": msa_summary,
+            "conservation": conservation,
+            "interactions": interactions,
+            "sites": sites,
+            "evidence": evidence,
+            "vectors": vectors,
+        }
+        self._v03_bundle_payloads = {
+            name: None if payload is None else dict(payload)
+            for name, payload in payloads.items()
+        }
+
+    def _v03_bundle_kwargs(self) -> dict[str, Mapping[str, Any] | None]:
+        """Return optional v0.3 payloads without calculating or normalizing them."""
+
+        return dict(self._v03_bundle_payloads)
+
     def _export_xlsx(self) -> None:
+        if self._v03_export_records:
+            result = self.model.analysis
+            if result is None:
+                self._show_error("Run a comparison before exporting results.")
+                return
+            path, _ = self.w.QFileDialog.getSaveFileName(
+                self.widget,
+                "Export v0.3 XLSX",
+                "structlens_v03_result.xlsx",
+                "XLSX (*.xlsx)",
+            )
+            if not path:
+                return
+            try:
+                export_v03_xlsx(path, **self._v03_export_records)
+                self._set_status(f"v0.3 XLSX export written · {Path(path).name}")
+            except (OSError, ValueError) as exc:
+                self._show_error(f"Could not export v0.3 XLSX: {exc}")
+            return
         self._export("xlsx", export_analysis_xlsx, "XLSX")
 
     def _export_csv(self) -> None:
@@ -1343,6 +1492,7 @@ class PanelController:
                 targets={result.target_id: self.target_structure},
                 analysis=result,
                 provenance=dict(result.provenance),
+                **self._v03_bundle_kwargs(),
             )
             self._set_status(f"Validated PyMOL bundle written · {Path(path).name}")
         except (OSError, ValueError, BundleValidationError) as exc:
@@ -1366,6 +1516,7 @@ class PanelController:
                 targets={result.target_id: self.target_structure},
                 analysis=result,
                 provenance=dict(result.provenance),
+                **self._v03_bundle_kwargs(),
             )
             launcher = PyMOLLauncher(self.pymol_edit.text().strip() or None)
             launch = launcher.launch_bundle(bundle_path)
@@ -1616,9 +1767,10 @@ def _page_subtitle(section: str, *, standalone: bool = False) -> str:
     return {
         "Project": "Choose sources and chains.",
         "Sequences": "Review sequence identity, mutations, and conservation.",
-        "Structures": "Choose structural comparison and alignment settings.",
-        "Residues": "Inspect mapped positions.",
-        "Charts": (
+            "Structures": "Choose structural comparison and alignment settings.",
+            "Residues": "Inspect mapped positions.",
+            "Sites": "Define and compare active-site or ligand-centered regions.",
+            "Charts": (
             "Inspect chart-ready scientific profiles and visual filters."
             if standalone
             else "Apply a reversible PyMOL view from linked chart selections."
