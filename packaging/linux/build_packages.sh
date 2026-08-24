@@ -40,6 +40,7 @@ Terminal=false
 Categories=Science;Education;
 EOF
 cp "$APPDIR/usr/share/applications/structlens.desktop" "$DEBROOT/usr/share/applications/structlens.desktop"
+cp "$APPDIR/usr/share/applications/structlens.desktop" "$APPDIR/StructLens.desktop"
 cat > "$DEBROOT/DEBIAN/control" <<EOF
 Package: structlens
 Version: ${VERSION}
