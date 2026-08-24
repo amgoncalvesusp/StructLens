@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event
@@ -865,6 +866,7 @@ class PanelController:
         *,
         pymol_object_name: str | None = None,
     ) -> bool:
+        self._invalidate_analysis_views()
         self._clear_source(role)
         try:
             structure = load_structure(path)
@@ -1086,6 +1088,7 @@ class PanelController:
         return pairs
 
     def _analysis_finished(self, result: AnalysisResult) -> None:
+        self._invalidate_analysis_views()
         self.model = self.model.with_analysis(result)
         self._set_busy(False)
         self._populate_result(result)
@@ -1205,6 +1208,18 @@ class PanelController:
         self.legend_label.setText("Legend · status colors are paired with text labels; no scientific meaning is inferred from color alone.")
 
     # -------------------------------------------------------------- result UI
+    def _invalidate_analysis_views(self) -> None:
+        """Drop derived v0.3 views whenever their authoritative analysis changes."""
+
+        self.model = replace(self.model, analysis=None)
+        self._v03_export_records = {}
+        self._chart_datasets = {}
+        self.set_msa_result(None)
+        self.set_v03_bundle_payloads()
+        self.mutation_table.setRowCount(0)
+        self.residue_table.setRowCount(0)
+        self._update_chart_export_state(self.chart_combo.currentText())
+
     def _populate_result(self, result: AnalysisResult) -> None:
         self.result_decision.setText(f"<b>{result.alignment_decision}</b><br>Reference: {result.reference_id} · Target: {result.target_id}")
         values = {
@@ -1333,6 +1348,7 @@ class PanelController:
             return
         try:
             project = ProjectState.load(path)
+            self._invalidate_analysis_views()
             self._apply_project_settings(project.settings)
             self._set_combo_value(self.comparison_combo, project.comparison_mode.value)
             self._apply_visualization_payload(project.visualization_state)
