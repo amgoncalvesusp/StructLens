@@ -79,3 +79,18 @@ def test_ligand_radius_site_uses_explicit_ligand_atoms() -> None:
     )
     assert metrics.mapped_residue_count == 1
     assert metrics.coverage_fraction == 1.0
+
+
+def test_site_composition_uses_target_residue_chemistry() -> None:
+    reference = (_residue("ref", 1, "SER", (0, 0, 0)),)
+    target = (_residue("tar", 1, "VAL", (0, 0, 0)),)
+    definition = SiteDefinition("active", "Active", SiteDefinitionMode.KEY_RESIDUES, (reference[0].residue_id,), None, None, None)
+    metrics = calculate_site_metrics(
+        definition,
+        reference,
+        target,
+        {reference[0].residue_id: target[0].residue_id},
+        target_structure_id="tar",
+    )
+    assert metrics.polar_residue_fraction == 0.0
+    assert metrics.charged_residue_fraction == 0.0

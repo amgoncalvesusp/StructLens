@@ -95,8 +95,11 @@ def calculate_site_metrics(
             ref_ca.append(tuple(ref_coordinates[0]))
             tar_ca.append(tuple(target_coordinates[0]))
         tar_atoms.extend(_coords(target).tolist())
-        polar += int(reference.residue_name.upper() in {"SER", "THR", "ASN", "GLN", "TYR", "HIS"})
-        charged += int(reference.residue_name.upper() in {"ARG", "LYS", "ASP", "GLU", "HIS"})
+        # Composition belongs to the structure represented by this metric.
+        # The target may have a chemically different residue after a mapped
+        # substitution, so never inherit the reference residue name here.
+        polar += int(target.residue_name.upper() in {"SER", "THR", "ASN", "GLN", "TYR", "HIS"})
+        charged += int(target.residue_name.upper() in {"ARG", "LYS", "ASP", "GLU", "HIS"})
     ref_array = np.asarray(ref_ca, dtype=np.float64)
     tar_array = np.asarray(tar_ca, dtype=np.float64)
     if target_transform is not None and len(tar_array):

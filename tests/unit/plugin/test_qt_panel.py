@@ -211,6 +211,33 @@ def test_chart_exports_route_staged_v03_dataset(application, monkeypatch, tmp_pa
     panel.deleteLater()
 
 
+def test_new_analysis_invalidates_staged_v03_views(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    controller.set_v03_export_records(provenance=("old",))
+    controller.set_chart_datasets({"MSA conservation profile": ChartDataset("msa", "MSA", "x", "y", None, (), "")})
+    controller.set_msa_result(align_sequences((
+        AnalysisSequence("ref", "A", "A", (SequenceResidueRef(0, "A", ResidueId("ref", "1", "A", "0", None, "ALA")),), "derived"),
+    ), MSASettings()))
+    assert controller.msa_table.rowCount() == 1
+    controller._analysis_finished(
+        AnalysisResult(
+            reference_id="new-reference",
+            target_id="new-target",
+            correspondences=(),
+            mutations=(),
+            sequence_identity=1.0,
+            sequence_coverage=1.0,
+            alignment_decision="test",
+        )
+    )
+    assert controller._v03_export_records == {}
+    assert controller._chart_datasets == {}
+    assert controller.msa_table.rowCount() == 0
+    controller.close()
+    panel.deleteLater()
+
+
 def test_pymol_bundle_export_forwards_only_staged_v03_payloads(
     application, monkeypatch, tmp_path: Path
 ) -> None:
