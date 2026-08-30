@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # The plugin panel tests drive real Qt widgets; offscreen keeps them headless.
+  QT_QPA_PLATFORM: offscreen
+
 jobs:
   checks:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
@@ -27,10 +31,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3
+
       - name: Install project and development tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,gui-pyside6]"
 
       - name: Ruff
         run: python -m ruff check .
@@ -40,6 +50,17 @@ jobs:
 
       - name: pytest
         run: python -m pytest --cov=src/structlens --cov-report=term-missing
+
+      - name: Fail if any test was skipped
+        shell: bash
+        run: |
+          # A silently skipped Qt or backend test hides real coverage gaps.
+          python -m pytest -q -rs 2>&1 | tee report.txt
+          if grep -qE "[0-9]+ skipped" report.txt; then
+            echo "::error::Tests were skipped; every gate test must run in CI."
+            grep -E "^SKIPPED" report.txt || true
+            exit 1
+          fi
 
       - name: Confirm the golden baseline is committed, not regenerated
         shell: bash
