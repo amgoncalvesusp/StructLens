@@ -1,0 +1,52 @@
+name: Quality gates
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install project and development tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: python -m ruff check .
+
+      - name: mypy
+        run: python -m mypy
+
+      - name: pytest
+        run: python -m pytest --cov=src/structlens --cov-report=term-missing
+
+      - name: Confirm the golden baseline is committed, not regenerated
+        shell: bash
+        run: |
+          if ! git diff --quiet -- tests/fixtures/golden; then
+            echo "::error::The golden baseline changed during the test run."
+            echo "Regenerate deliberately with STRUCTLENS_REGEN_GOLDEN=1 and commit the diff."
+            git diff -- tests/fixtures/golden
+            exit 1
+          fi

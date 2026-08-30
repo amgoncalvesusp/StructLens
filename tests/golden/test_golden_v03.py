@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from tests.golden.pipeline import FIXTURES, build_snapshot
 
 EXPECTED = FIXTURES / "expected.json"

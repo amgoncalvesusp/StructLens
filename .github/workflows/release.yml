@@ -13,8 +13,13 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
+  quality:
+    name: Quality gates
+    uses: ./.github/workflows/ci.yml
+
   build-windows:
     name: Build Windows setup
+    needs: quality
     runs-on: windows-latest
     steps:
       - name: Check out source
@@ -92,6 +97,7 @@ jobs:
 
   build-linux:
     name: Build Linux setup
+    needs: quality
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
