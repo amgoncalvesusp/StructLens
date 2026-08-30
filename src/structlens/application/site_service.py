@@ -58,13 +58,22 @@ def _rmsd(reference: np.ndarray, target: np.ndarray) -> float | None:
 
 
 def _envelope_volume(values: np.ndarray) -> float | None:
-    if len(values) < 4:
-        return 0.0 if len(values) else None
-    try:
-        from scipy.spatial import ConvexHull  # type: ignore[import-untyped]
+    """Convex-hull envelope volume, or None when no 3D envelope exists.
 
+    Fewer than four atoms, and atoms that are collinear or coplanar, enclose no
+    measurable volume.  Those cases are unavailable rather than zero, and a
+    degenerate hull raises QhullError instead of returning a value.
+    """
+
+    if len(values) < 4:
+        return None
+    try:
+        from scipy.spatial import ConvexHull, QhullError  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+    try:
         return float(ConvexHull(values).volume)
-    except (ImportError, ValueError):
+    except (QhullError, ValueError):
         return None
 
 

@@ -1,0 +1,404 @@
+{
+  "conservation": [
+    {
+      "ambiguous_fraction": 0.0,
+      "conservation_score": 1.0,
+      "entropy_bits": 0.0,
+      "gap_fraction": 0.0,
+      "index": 0,
+      "reference_label": "A:1"
+    },
+    {
+      "ambiguous_fraction": 0.0,
+      "conservation_score": 1.0,
+      "entropy_bits": 0.0,
+      "gap_fraction": 0.0,
+      "index": 1,
+      "reference_label": "A:2"
+    },
+    {
+      "ambiguous_fraction": 0.0,
+      "conservation_score": 0.768622,
+      "entropy_bits": 1.0,
+      "gap_fraction": 0.0,
+      "index": 2,
+      "reference_label": "A:3"
+    },
+    {
+      "ambiguous_fraction": 0.0,
+      "conservation_score": 1.0,
+      "entropy_bits": 0.0,
+      "gap_fraction": 0.0,
+      "index": 3,
+      "reference_label": "A:4"
+    },
+    {
+      "ambiguous_fraction": 0.0,
+      "conservation_score": 1.0,
+      "entropy_bits": 0.0,
+      "gap_fraction": 0.0,
+      "index": 4,
+      "reference_label": "A:5"
+    },
+    {
+      "ambiguous_fraction": 0.0,
+      "conservation_score": null,
+      "entropy_bits": null,
+      "gap_fraction": 0.5,
+      "index": 5,
+      "reference_label": "A:6"
+    }
+  ],
+  "distance_map": {
+    "delta_angstrom": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.086549
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.115098
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.313971
+      ],
+      [
+        0.086549,
+        0.115098,
+        0.0,
+        0.313971,
+        0.0
+      ]
+    ],
+    "labels": [
+      "A:1",
+      "A:2",
+      "A:3",
+      "A:4",
+      "A:5"
+    ],
+    "valid_mask": [
+      [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    ]
+  },
+  "evidence_card": {
+    "ca_displacement_angstrom": 1.3,
+    "conservation_fraction": 1.0,
+    "entropy_bits": 0.0,
+    "provenance": [
+      "golden-fixture"
+    ],
+    "quality": {
+      "available_sections": [
+        "sequence",
+        "structure"
+      ],
+      "overall_status": "partial",
+      "source_count": 2,
+      "unavailable_sections": [
+        "interactions",
+        "site"
+      ]
+    },
+    "reference_auth_seq_id": "1",
+    "reference_one_letter": "K",
+    "target_id": "target",
+    "target_one_letter": "K"
+  },
+  "interactions": {
+    "differences": [
+      {
+        "change": "conserved",
+        "position_a": "A:1",
+        "position_b": "A:2",
+        "type": "hbond_geometric"
+      },
+      {
+        "change": "conserved",
+        "position_a": "A:2",
+        "position_b": "A:3",
+        "type": "hbond_geometric"
+      },
+      {
+        "change": "conserved",
+        "position_a": "A:3",
+        "position_b": "A:4",
+        "type": "hbond_geometric"
+      },
+      {
+        "change": "conserved",
+        "position_a": "A:4",
+        "position_b": "A:5",
+        "type": "hbond_geometric"
+      }
+    ],
+    "reference": [
+      {
+        "distance_angstrom": 1.825,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 1.414,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 2.625,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 2.283,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 3.833,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hydrophobic"
+      }
+    ],
+    "target": [
+      {
+        "distance_angstrom": 1.825,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 1.414,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 2.625,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      },
+      {
+        "distance_angstrom": 2.283,
+        "evidence_mode": "heavy_atom_geometry",
+        "type": "hbond_geometric"
+      }
+    ]
+  },
+  "msa": {
+    "algorithm": "fallback",
+    "aligned_rows": [
+      [
+        "SLSEQ000001",
+        "KDSGAF"
+      ],
+      [
+        "SLSEQ000002",
+        "KDVGA-"
+      ]
+    ],
+    "columns": [
+      {
+        "characters": [
+          "K",
+          "K"
+        ],
+        "index": 0,
+        "non_gap_count": 2,
+        "reference_auth_seq_id": "1",
+        "reference_label": "A:1"
+      },
+      {
+        "characters": [
+          "D",
+          "D"
+        ],
+        "index": 1,
+        "non_gap_count": 2,
+        "reference_auth_seq_id": "2",
+        "reference_label": "A:2"
+      },
+      {
+        "characters": [
+          "S",
+          "V"
+        ],
+        "index": 2,
+        "non_gap_count": 2,
+        "reference_auth_seq_id": "3",
+        "reference_label": "A:3"
+      },
+      {
+        "characters": [
+          "G",
+          "G"
+        ],
+        "index": 3,
+        "non_gap_count": 2,
+        "reference_auth_seq_id": "4",
+        "reference_label": "A:4"
+      },
+      {
+        "characters": [
+          "A",
+          "A"
+        ],
+        "index": 4,
+        "non_gap_count": 2,
+        "reference_auth_seq_id": "5",
+        "reference_label": "A:5"
+      },
+      {
+        "characters": [
+          "F",
+          "-"
+        ],
+        "index": 5,
+        "non_gap_count": 1,
+        "reference_auth_seq_id": "6",
+        "reference_label": "A:6"
+      }
+    ],
+    "reference_structure_id": "reference"
+  },
+  "sites": [
+    {
+      "atomic_envelope_volume_angstrom3": 12.731334,
+      "charged_residue_fraction": 0.666667,
+      "coverage_fraction": 1.0,
+      "global_frame_backbone_rmsd_angstrom": 0.5,
+      "mapped_residue_count": 3,
+      "polar_residue_fraction": 0.0,
+      "sasa_angstrom2": null,
+      "site_fitted_backbone_rmsd_angstrom": 0.0,
+      "site_id": "key"
+    },
+    {
+      "atomic_envelope_volume_angstrom3": 21.635168,
+      "charged_residue_fraction": 0.5,
+      "coverage_fraction": 1.0,
+      "global_frame_backbone_rmsd_angstrom": 0.5,
+      "mapped_residue_count": 4,
+      "polar_residue_fraction": 0.0,
+      "sasa_angstrom2": null,
+      "site_fitted_backbone_rmsd_angstrom": 0.0,
+      "site_id": "ligand"
+    },
+    {
+      "atomic_envelope_volume_angstrom3": 21.635168,
+      "charged_residue_fraction": 0.5,
+      "coverage_fraction": 1.0,
+      "global_frame_backbone_rmsd_angstrom": 0.5,
+      "mapped_residue_count": 4,
+      "polar_residue_fraction": 0.0,
+      "sasa_angstrom2": null,
+      "site_fitted_backbone_rmsd_angstrom": 0.0,
+      "site_id": "radius"
+    }
+  ],
+  "vectors": [
+    {
+      "magnitude_angstrom": 1.3,
+      "reference_auth_seq_id": "5",
+      "reference_position": "A:5",
+      "target_auth_seq_id": "5",
+      "vector_xyz": [
+        0.0,
+        1.2,
+        0.5
+      ]
+    },
+    {
+      "magnitude_angstrom": 0.5,
+      "reference_auth_seq_id": "1",
+      "reference_position": "A:1",
+      "target_auth_seq_id": "1",
+      "vector_xyz": [
+        0.0,
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "magnitude_angstrom": 0.5,
+      "reference_auth_seq_id": "2",
+      "reference_position": "A:2",
+      "target_auth_seq_id": "2",
+      "vector_xyz": [
+        0.0,
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "magnitude_angstrom": 0.5,
+      "reference_auth_seq_id": "3",
+      "reference_position": "A:3",
+      "target_auth_seq_id": "3",
+      "vector_xyz": [
+        0.0,
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "magnitude_angstrom": 0.5,
+      "reference_auth_seq_id": "4",
+      "reference_position": "A:4",
+      "target_auth_seq_id": "4",
+      "vector_xyz": [
+        0.0,
+        0.0,
+        0.5
+      ]
+    }
+  ]
+}

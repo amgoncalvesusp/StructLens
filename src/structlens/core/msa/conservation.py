@@ -18,7 +18,9 @@ def column_statistics(characters: Iterable[str]) -> tuple[float | None, float | 
         return None, None, 1.0, 0.0, {}
     canonical = [value for value in values if value in CANONICAL_AMINO_ACIDS]
     frequencies = {amino: count / len(canonical) for amino, count in Counter(canonical).items()} if canonical else {}
-    entropy = -sum(value * math.log2(value) for value in frequencies.values()) if len(canonical) >= 2 else None
+    # The trailing + 0.0 normalises the -0.0 a fully conserved column would
+    # otherwise carry into exports and reports.
+    entropy = -sum(value * math.log2(value) for value in frequencies.values()) + 0.0 if len(canonical) >= 2 else None
     conservation = 1.0 - entropy / math.log2(20) if entropy is not None else None
     gap_fraction = sum(value in {"-", "."} for value in values) / len(values)
     ambiguous_fraction = sum(value in AMBIGUOUS_AMINO_ACIDS for value in values) / len(values)

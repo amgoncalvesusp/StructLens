@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import difflib
-import math
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -18,8 +17,7 @@ from structlens.core.msa import (
     MultipleSequenceAlignment,
     SequenceResidueRef,
 )
-
-_CANONICAL = frozenset("ACDEFGHIKLMNPQRSTVWY")
+from structlens.core.msa.conservation import column_statistics
 
 
 def _internal_ids(count: int) -> tuple[str, ...]:
@@ -101,16 +99,12 @@ def _columns(sequences: Sequence[AnalysisSequence], rows: Sequence[tuple[str, st
                 if sequence_index < len(sequence.residues):
                     residue = sequence.residues[sequence_index]
             cells.append(MSAResidueCell(sequence.structure_id, column_index, residue, character))
-        non_gap = sum(cell.character != "-" for cell in cells)
-        gap_fraction = 1.0 - (non_gap / len(cells))
-        ambiguous = sum(cell.character.upper() in {"X", "B", "Z", "J"} for cell in cells)
-        valid = [cell.character.upper() for cell in cells if cell.character.upper() in _CANONICAL]
-        entropy = None
-        conservation = None
-        if len(valid) >= 2:
-            frequencies = {symbol: valid.count(symbol) / len(valid) for symbol in set(valid)}
-            entropy = -sum(value * math.log2(value) for value in frequencies.values())
-            conservation = 1.0 - entropy / math.log2(20)
+        non_gap = sum(cell.character not in {"-", "."} for cell in cells)
+        # Conservation, entropy, and the gap/ambiguous fractions all come from
+        # the single canonical implementation in core.msa.conservation.
+        conservation, entropy, gap_fraction, ambiguous_fraction, _ = column_statistics(
+            cell.character for cell in cells
+        )
         output.append(
             MSAColumn(
                 column_index,
@@ -119,7 +113,7 @@ def _columns(sequences: Sequence[AnalysisSequence], rows: Sequence[tuple[str, st
                 tuple(cells),
                 non_gap,
                 gap_fraction,
-                ambiguous / len(cells),
+                ambiguous_fraction,
                 conservation,
                 entropy,
             )
