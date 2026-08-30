@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from .residue import ResidueId
 
 
-class CorrespondenceStatus(str, Enum):
+class CorrespondenceStatus(StrEnum):
     """The state of one aligned residue position."""
 
     CONSERVED = "conserved"

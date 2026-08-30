@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import StrEnum
 
 from structlens.core.models import CorrespondenceStatus, ResidueCorrespondence
 
 
-class HighlightFilter(str, Enum):
+class HighlightFilter(StrEnum):
     ALL = "all"
     MUTATIONS = "mutations"
     CONSERVED = "conserved"
@@ -20,14 +20,14 @@ class HighlightFilter(str, Enum):
     DISPLACEMENT = "displacement"
 
 
-class ColorMode(str, Enum):
+class ColorMode(StrEnum):
     REFERENCE_TARGET = "reference_target"
     MUTATION_STATUS = "mutation_status"
     CA_DISPLACEMENT = "ca_displacement"
     BACKBONE_RMSD = "backbone_rmsd"
 
 
-class Representation(str, Enum):
+class Representation(StrEnum):
     STICKS = "sticks"
     SPHERES = "spheres"
     STICKS_SPHERES = "sticks_spheres"

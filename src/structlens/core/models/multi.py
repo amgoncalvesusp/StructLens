@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from types import MappingProxyType
 
 from structlens.core.metrics.sequence_metrics import SequenceAlignmentMetrics
@@ -21,7 +21,7 @@ from .mutation import MutationEvent
 from .residue import ResidueId
 
 
-class ComparisonMode(str, Enum):
+class ComparisonMode(StrEnum):
     """Supported comparison topologies."""
 
     PAIRWISE = "pairwise"

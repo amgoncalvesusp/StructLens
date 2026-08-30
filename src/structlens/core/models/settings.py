@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class AlignmentMode(str, Enum):
+class AlignmentMode(StrEnum):
     """How residue correspondence should be established."""
 
     AUTO = "auto"

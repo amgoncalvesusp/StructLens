@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from structlens.core.models import ResidueId
 
 
-class SiteDefinitionMode(str, Enum):
+class SiteDefinitionMode(StrEnum):
     KEY_RESIDUES = "key_residues"
     LIGAND_RADIUS = "ligand_radius"
     RESIDUE_RADIUS = "residue_radius"
@@ -53,7 +53,7 @@ class SiteDefinition:
         if name is None:
             name = site_id
         if mode is None and "kind" in legacy:
-            mode = SiteDefinitionMode(legacy.pop("kind"))
+            mode = SiteDefinitionMode(str(legacy.pop("kind")))
         if "key_residues" in legacy:
             reference_residues = tuple(legacy.pop("key_residues"))  # type: ignore[arg-type]
         if legacy:

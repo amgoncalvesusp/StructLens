@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 from structlens.core.interactions import InteractionDifference, InteractionRecord
 from structlens.core.models import ResidueId
@@ -17,7 +17,7 @@ from structlens.core.msa import SequenceResidueRef
 from structlens.core.sites import SiteMetrics
 
 
-class EvidenceAvailability(str, Enum):
+class EvidenceAvailability(StrEnum):
     AVAILABLE = "available"
     PARTIAL = "partial"
     UNAVAILABLE = "unavailable"

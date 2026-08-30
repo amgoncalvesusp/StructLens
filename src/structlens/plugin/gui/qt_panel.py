@@ -1529,7 +1529,7 @@ class PanelController:
             columns = list(dict.fromkeys(cell.column for cell in dataset.cells))
             values = {(cell.row, cell.column): cell.value for cell in dataset.cells}
             image = [
-                [float("nan") if values.get((row, column)) is None else float(values[(row, column)]) for column in columns]
+                [float("nan") if (value := values.get((row, column))) is None else float(value) for column in columns]
                 for row in rows
             ]
             if image and columns:

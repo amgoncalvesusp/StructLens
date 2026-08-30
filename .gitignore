@@ -14,3 +14,7 @@ build-*/
 .superpowers/sdd/
 .worktrees/
 worktrees/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

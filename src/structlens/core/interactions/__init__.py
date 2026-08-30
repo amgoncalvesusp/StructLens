@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from structlens.core.models import ResidueId
 
 
-class InteractionType(str, Enum):
+class InteractionType(StrEnum):
     HBOND_GEOMETRIC = "hbond_geometric"
     SALT_BRIDGE = "salt_bridge"
     HYDROPHOBIC = "hydrophobic"
@@ -19,7 +19,7 @@ class InteractionType(str, Enum):
     HYDROGEN_BOND = "hbond_geometric"
 
 
-class InteractionChange(str, Enum):
+class InteractionChange(StrEnum):
     CONSERVED = "conserved"
     GAINED = "gained"
     LOST = "lost"

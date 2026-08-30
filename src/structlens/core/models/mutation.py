@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from .residue import ResidueId
 
 
-class MutationKind(str, Enum):
+class MutationKind(StrEnum):
     """Descriptive mutation categories; none imply functional effects."""
 
     CONSERVED = "conserved"
