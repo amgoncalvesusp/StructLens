@@ -432,3 +432,44 @@
   interpreter conflict `open-webui 0.9.2` versus `onnxruntime`; neither package
   is a StructLens dependency, so the clean-environment packaging gate remains
   assigned to Tasks 17/18. The next accepted item is Task 10.
+- 2026-08-31 Task 10 (pocket matching and mutation comparison): added a
+  deterministic, bounded global bipartite assignment over candidate pockets.
+  Lining overlap is calculated through authoritative one-to-one residue
+  correspondence and centroid distance uses the stored target-to-reference
+  transform. Each result preserves matched, ambiguous, unmatched-reference,
+  and unmatched-target states; ambiguity compares complete assignment scores
+  on the same scale and never falls back to a greedy pairing. Mutation
+  comparison reports target-minus-reference volume/surface evidence, relative
+  deltas only for positive references, lining gains/losses only when an
+  authoritative correspondence exists, mutation associations, full-identity
+  interaction changes, separate C-alpha/side-chain displacement, QC, and
+  coarse/fine sensitivity without causal language.
+- 2026-08-31 Task 10 evidence/provenance hardening: seven independent Evidence
+  Concordance channels retain their native availability, measure, units,
+  diagnostics, and provenance; no combined probability is calculated. Public
+  evidence JSON and unit maps are deeply immutable and bounded. Core and
+  application pocket-volume producers use mutually exclusive schemas, derive
+  compatibility from method settings rather than candidate geometry, and
+  reconcile candidate, sphere, selection, logical-content, and raw-source
+  evidence at the application boundary. Partial tampering fails closed. The
+  application rejects raw numeric volume/surface evidence and pre-combined
+  volume comparisons. A provenance extraction reduced `pocket_service.py` to
+  574 lines; `pocket_provenance.py` is 281 lines and reached 97% branch
+  coverage. The documented limitation remains that coordinated rewriting of
+  every evidence copy cannot be detected without an external signature or an
+  independently held source snapshot.
+- 2026-08-31 accepted Task 10 gate after five independent review/fix rounds:
+  the focused branch-aware run over provenance, volume, matching, comparison,
+  application pocket services, and Evidence Card tests reported 262 passed.
+  `matching.py` reached 92%, `comparison.py` 92%, `comparison_models.py` 91%,
+  `pocket_comparison_service.py` 92%, `pocket_provenance.py` 97%,
+  `builder.py` 93%, `volume.py` 95%, and `volume_models.py` 93% branch-aware
+  coverage. `python -m pytest -q` reported 731 passed; `python -m ruff check .`
+  passed; `python -m mypy src` passed across 151 source files;
+  `python -m pip_audit .` found no known vulnerabilities; and
+  `git diff --check` was clean apart from LF-to-CRLF notices. Final independent
+  Luna and Terra re-reviews found no remaining CRITICAL/HIGH issue.
+  `python -m pip check` still reports only the shared-environment conflict
+  `open-webui 0.9.2` versus `onnxruntime 1.20.1`; neither is a StructLens
+  dependency, so clean build-environment verification remains assigned to
+  Tasks 17/18. The next accepted item is Task 11.

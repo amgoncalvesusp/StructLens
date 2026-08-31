@@ -237,6 +237,12 @@ def sites_present(value: tuple[SiteMetrics, ...] | SiteEvidence | None) -> bool:
 def evidence_card_json(value: EvidenceCard) -> JSONValue:
     """Project an evidence card through its typed nested contracts."""
 
+    pocket = (
+        value.pocket_sections.to_json()
+        if value.pocket_sections is not None and hasattr(value.pocket_sections, "to_json")
+        else None
+    )
+
     return {
         "reference_residue": residue_json(value.residue_id),
         "target_id": value.target_id,
@@ -277,7 +283,9 @@ def evidence_card_json(value: EvidenceCard) -> JSONValue:
         },
         "interactions": {
             "differences": [interaction_json(item) for item in value.interactions.differences],
-            "reference_interactions": [interaction_record_json(item) for item in value.interactions.reference_interactions],
+            "reference_interactions": [
+                interaction_record_json(item) for item in value.interactions.reference_interactions
+            ],
             "target_interactions": [interaction_record_json(item) for item in value.interactions.target_interactions],
         },
         "site": {"metrics": [site_json(item) for item in value.site.metrics]},
@@ -291,6 +299,7 @@ def evidence_card_json(value: EvidenceCard) -> JSONValue:
         },
         "schema_version": value.schema_version,
         "provenance": list(value.provenance),
+        "pocket_concordance": cast(JSONValue, pocket),
     }
 
 

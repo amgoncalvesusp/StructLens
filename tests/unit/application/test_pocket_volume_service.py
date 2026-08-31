@@ -4,6 +4,7 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
+from structlens.application.pocket_comparison_service import PocketComparisonService
 from structlens.application.pocket_service import StructurePocketService
 from structlens.core.evidence import Availability
 from structlens.core.models import (
@@ -11,6 +12,7 @@ from structlens.core.models import (
     ComponentKind,
     ProteinChain,
     ProteinStructure,
+    ResidueCorrespondence,
     ResidueId,
     ResidueNumbering,
     ResidueRecord,
@@ -195,12 +197,351 @@ def test_volume_service_returns_typed_result_with_complete_provenance() -> None:
     assert first.provenance.input_hashes == {
         "raw_source": "b" * 64,
         "logical_content": "a" * 64,
+        "candidate": candidate.candidate_id,
+        "source_content": candidate.source_content_id,
     }
     assert first.provenance.parameters["radii_version"] == POCKET_RADII_VERSION
     assert first.provenance.parameters["component_exclusion_policy"] == "protein_only"
     assert first.provenance.parameters["grid_phase"] == "cell_center"
     assert first.provenance.parameters["selection_id"] == parsed.selection.selection_id
+    assert first.provenance_parameters["raw_source_hash"] == parsed.raw_source_hash
+    assert first.provenance_parameters["logical_content"] == parsed.selection.content_id
     assert first.provenance.artifact_id == second.provenance.artifact_id
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ("method_raw_source", "result_raw_source", "method_logical_content", "result_logical_content"),
+)
+def test_comparison_rejects_isolated_source_snapshot_tampering_from_real_service(tamper: str) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    if tamper.startswith("method_"):
+        hash_name = tamper.removeprefix("method_")
+        hashes = dict(valid.provenance.input_hashes)
+        hashes[hash_name] = "f" * 64
+        tampered = replace(valid, provenance=replace(valid.provenance, input_hashes=hashes))
+    else:
+        result_name = {
+            "result_raw_source": "raw_source_hash",
+            "result_logical_content": "logical_content",
+        }[tamper]
+        tampered = replace(
+            valid,
+            provenance_parameters={**valid.provenance_parameters, result_name: "f" * 64},
+        )
+
+    with pytest.raises(ValueError, match="source|logical|hash|provenance"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
+
+
+def test_structure_volume_service_results_are_accepted_by_comparison_service() -> None:
+    parsed = _parsed()
+    target_selection = replace(parsed.selection, content_id="c" * 64, display_name="target-pocket.pdb")
+    target_parsed = replace(parsed, selection=target_selection, raw_source_hash="d" * 64)
+    reference = _candidate(radius=2.0)
+    target = replace(
+        _candidate(radius=2.25),
+        source_content_id=target_selection.content_id,
+        selection_id=target_selection.selection_id,
+    )
+    volume_service = StructurePocketService()
+    reference_volume = volume_service.measure_volume(parsed, reference, settings=_settings())
+    target_volume = volume_service.measure_volume(target_parsed, target, settings=_settings())
+    residue = reference.alpha_spheres[0].lining_residues[0]
+    correspondence = ResidueCorrespondence(0, residue, residue, "A", "A", "conserved")
+
+    report = PocketComparisonService().compare(
+        reference,
+        target,
+        (correspondence,),
+        reference_volume=reference_volume,
+        target_volume=target_volume,
+    )
+
+    assert report.availability is Availability.AVAILABLE
+    assert len(report.comparisons) == 1
+    assert report.comparisons[0].volume_delta_angstrom3 is not None
+
+
+@pytest.mark.parametrize("container", ("result", "method"))
+@pytest.mark.parametrize("field", ("sphere_ids", "sphere_radii_angstrom", "sphere_count"))
+def test_application_volume_boundary_rejects_each_isolated_sphere_metadata_tampering(
+    container: str,
+    field: str,
+) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    if field == "sphere_ids":
+        tampered_value: object = ("f" * 64,)
+    elif field == "sphere_radii_angstrom":
+        tampered_value = (9.0,)
+    else:
+        tampered_value = 2
+    if container == "result":
+        tampered = replace(
+            valid,
+            provenance_parameters={**valid.provenance_parameters, field: tampered_value},
+        )
+    else:
+        tampered = replace(
+            valid,
+            provenance=replace(
+                valid.provenance,
+                parameters={**valid.provenance.parameters, field: tampered_value},
+            ),
+        )
+
+    with pytest.raises(ValueError, match="sphere|candidate|provenance|coherent"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
+
+
+@pytest.mark.parametrize("field", ("sphere_ids", "sphere_radii_angstrom", "sphere_count"))
+def test_application_volume_boundary_checks_coordinated_sphere_metadata_against_candidate(field: str) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    if field == "sphere_ids":
+        tampered_value: object = ("f" * 64,)
+    elif field == "sphere_radii_angstrom":
+        tampered_value = (9.0,)
+    else:
+        tampered_value = 2
+    tampered = replace(
+        valid,
+        provenance_parameters={**valid.provenance_parameters, field: tampered_value},
+        provenance=replace(
+            valid.provenance,
+            parameters={**valid.provenance.parameters, field: tampered_value},
+        ),
+    )
+
+    with pytest.raises(ValueError, match="sphere|candidate"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
+
+
+@pytest.mark.parametrize("container", ("result", "method"))
+@pytest.mark.parametrize("field", ("candidate_id", "source_content_id", "selection_id"))
+def test_application_volume_boundary_checks_each_identity_field_against_candidate(
+    container: str,
+    field: str,
+) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    if container == "result":
+        tampered = replace(
+            valid,
+            provenance_parameters={**valid.provenance_parameters, field: "f" * 64},
+        )
+    else:
+        tampered = replace(
+            valid,
+            provenance=replace(
+                valid.provenance,
+                parameters={**valid.provenance.parameters, field: "f" * 64},
+            ),
+        )
+
+    with pytest.raises(ValueError, match="candidate|lineage|provenance"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
+
+
+@pytest.mark.parametrize(
+    "required_parameter",
+    (
+        "selection",
+        "model_id",
+        "author_chain_ids",
+        "label_chain_ids",
+        "altloc_policy",
+        "assembly_scope",
+        "atom_scope",
+        "component_scope",
+        "component_rules_version",
+        "hydrogen_policy",
+        "polymer_atom_count",
+        "component_ids",
+    ),
+)
+def test_application_volume_boundary_requires_complete_application_schema(required_parameter: str) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    parameters = dict(valid.provenance.parameters)
+    parameters.pop(required_parameter)
+    tampered = replace(valid, provenance=replace(valid.provenance, parameters=parameters))
+
+    with pytest.raises(ValueError, match="application|schema|selection|policy|provenance"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
+
+
+@pytest.mark.parametrize("required_hash", ("raw_source", "logical_content", "candidate", "source_content"))
+def test_application_volume_boundary_requires_complete_input_hash_schema(required_hash: str) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    hashes = dict(valid.provenance.input_hashes)
+    hashes.pop(required_hash)
+    tampered = replace(valid, provenance=replace(valid.provenance, input_hashes=hashes))
+
+    with pytest.raises(ValueError, match="hash|candidate|source|schema|provenance"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
+
+
+def test_application_volume_rejects_core_alias_with_application_only_schema() -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    aliased = replace(
+        valid,
+        provenance=replace(
+            valid.provenance,
+            method_id="structlens.pocket_free_volume",
+            method_version="0.4",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="core|schema|producer|hash|provenance"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=aliased,
+            target_volume=valid,
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "selection_not_mapping",
+        "selection_missing_field",
+        "selection_mismatch",
+        "selection_format",
+        "altloc_policy",
+        "assembly_scope",
+        "analyzed_representation",
+        "author_chain_ids",
+        "chain_locators",
+        "resource_setting",
+        "atom_scope",
+        "polymer_atom_count",
+        "component_ids",
+        "logical_content_hash",
+        "backend_schema",
+        "units_schema",
+    ),
+)
+def test_application_volume_strict_schema_rejects_incoherent_producer_fields(tamper: str) -> None:
+    parsed = _parsed()
+    candidate = _candidate()
+    valid = StructurePocketService().measure_volume(parsed, candidate, settings=_settings())
+    assert valid.provenance is not None
+    method_parameters = dict(valid.provenance.parameters)
+    result_parameters = dict(valid.provenance_parameters)
+    provenance_kwargs: dict[str, object] = {}
+    signature = valid.compatibility_signature
+    if tamper == "selection_not_mapping":
+        method_parameters["selection"] = "invalid"
+    else:
+        selection = dict(method_parameters["selection"])  # type: ignore[arg-type]
+        if tamper == "selection_missing_field":
+            selection.pop("format")
+        elif tamper == "selection_mismatch":
+            selection["model_id"] = "2"
+        elif tamper == "selection_format":
+            selection["format"] = "mol2"
+        elif tamper == "altloc_policy":
+            selection["altloc_policy"] = method_parameters["altloc_policy"] = "invalid"
+            result_parameters["altloc_policy"] = "invalid"
+            signature = signature[:-2] + (("altloc_policy", "invalid"), signature[-1])
+        elif tamper == "assembly_scope":
+            selection["assembly_scope"] = method_parameters["assembly_scope"] = "invalid"
+            provenance_kwargs["analyzed_representation"] = "invalid"
+        elif tamper == "author_chain_ids":
+            selection["author_chain_ids"] = method_parameters["author_chain_ids"] = (1,)
+        elif tamper == "chain_locators":
+            selection["chain_locators"] = ({"author_chain_id": "A"},)
+        method_parameters["selection"] = selection
+    if tamper == "analyzed_representation":
+        provenance_kwargs["analyzed_representation"] = "biological_assembly"
+    elif tamper == "resource_setting":
+        method_parameters["max_voxel_count"] = valid.settings.max_voxel_count + 1  # type: ignore[union-attr]
+    elif tamper == "atom_scope":
+        method_parameters["atom_scope"] = "all_atoms"
+    elif tamper == "polymer_atom_count":
+        method_parameters["polymer_atom_count"] = -1
+    elif tamper == "component_ids":
+        method_parameters["component_ids"] = (1,)
+    elif tamper == "logical_content_hash":
+        hashes = dict(valid.provenance.input_hashes)
+        hashes["logical_content"] = "f" * 64
+        provenance_kwargs["input_hashes"] = hashes
+    elif tamper == "backend_schema":
+        provenance_kwargs["backend_versions"] = {"numpy": "1", "scipy": "1"}
+    elif tamper == "units_schema":
+        provenance_kwargs["units"] = {**valid.provenance.units, "extra": "count"}
+    tampered = replace(
+        valid,
+        provenance_parameters=result_parameters,
+        compatibility_signature=signature,
+        provenance=replace(valid.provenance, parameters=method_parameters, **provenance_kwargs),
+    )
+
+    with pytest.raises(ValueError, match="application|selection|policy|schema|setting|count|hash|unit|_ids"):
+        PocketComparisonService().compare(
+            candidate,
+            candidate,
+            (),
+            reference_volume=tampered,
+            target_volume=valid,
+        )
 
 
 def test_service_applies_protein_only_and_unoccupied_policies_to_holo_components() -> None:
@@ -308,8 +649,7 @@ def test_service_disables_cross_altloc_policy_volume_deltas() -> None:
         atoms=(first_choice, highest_choice),
     )
     alternate_components = tuple(
-        alternate_ligand if component.component_id == "ligand-1" else component
-        for component in parsed.components
+        alternate_ligand if component.component_id == "ligand-1" else component for component in parsed.components
     )
     highest_parsed = ParsedStructure(
         parsed.protein_structure,
@@ -354,8 +694,7 @@ def test_service_uses_heavy_atoms_for_both_polymer_and_retained_components() -> 
     hydrogen_only = ParsedStructure(
         parsed.protein_structure,
         tuple(
-            hydrogen_ligand if component.component_id == "ligand-1" else component
-            for component in parsed.components
+            hydrogen_ligand if component.component_id == "ligand-1" else component for component in parsed.components
         ),
         parsed.selection,
         parsed.metadata,

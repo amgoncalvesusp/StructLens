@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from importlib.metadata import version as package_version
 from threading import Event
 from types import MappingProxyType
 from typing import cast
@@ -21,8 +20,6 @@ from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverit
 from structlens.core.models import AtomRecord, ComponentKind, ProteinChain, ResidueId, ResidueRecord, StructureComponent
 from structlens.core.parsing import AltlocPolicy, ParsedStructure
 from structlens.core.pockets import (
-    POCKET_LIGAND_RULES_VERSION,
-    POCKET_RADII_VERSION,
     FocusedPocketSelection,
     PocketCandidate,
     PocketDetectionSettings,
@@ -38,15 +35,22 @@ from structlens.core.pockets import (
 from structlens.core.pockets.clustering import cluster_alpha_spheres
 from structlens.core.pockets.delaunay import PocketAtom, detect_alpha_spheres
 from structlens.core.pockets.ranking import rank_pocket_candidates
-from structlens.core.provenance import FrozenJSON, MethodProvenance
+from structlens.core.provenance import MethodProvenance
 from structlens.core.sites import SiteDefinition
 
+from .pocket_provenance import (
+    VOLUME_HYDROGEN_POLICY as _VOLUME_HYDROGEN_POLICY,
+)
+from .pocket_provenance import (
+    build_detection_provenance,
+    build_focus_provenance,
+    build_volume_provenance,
+    build_volume_result_parameters,
+)
 from .site_service import define_site
 
 ProgressCallback = Callable[[str], None]
 
-_METHOD_ID = "structlens.pocket.detect"
-_METHOD_VERSION = "0.4.0"
 _HYDROGEN_ELEMENTS = frozenset({"H", "D", "T"})
 _NUMERICAL_FAILURE_CODES = frozenset(
     {
@@ -54,14 +58,7 @@ _NUMERICAL_FAILURE_CODES = frozenset(
         "pocket.detect.qhull_failure",
     }
 )
-_VOLUME_METHOD_ID = "structlens.pocket.volume"
-_VOLUME_METHOD_VERSION = "0.4.0"
-_VOLUME_HYDROGEN_POLICY = "deposited_heavy_atoms_only"
-_FOCUS_METHOD_ID = "structlens.pocket.focus"
-_FOCUS_METHOD_VERSION = "0.4.0"
-_VOLUME_COMPONENT_KINDS = frozenset(
-    {ComponentKind.LIGAND, ComponentKind.ION, ComponentKind.OTHER}
-)
+_VOLUME_COMPONENT_KINDS = frozenset({ComponentKind.LIGAND, ComponentKind.ION, ComponentKind.OTHER})
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +153,7 @@ class StructurePocketService:
         _check_cancel(cancel_event)
         atoms, preparation_diagnostics, excluded_counts = _selected_polymer_atoms(parsed)
         counts = {"input_atoms": len(atoms), **excluded_counts}
-        provenance = _build_provenance(parsed, self._settings, input_atoms=len(atoms))
+        provenance = build_detection_provenance(parsed, self._settings, input_atoms=len(atoms))
         if len(atoms) < 4:
             diagnostics = preparation_diagnostics + (
                 _diagnostic(
@@ -261,9 +258,7 @@ class StructurePocketService:
             _validate_candidate_lineage(candidate, parsed)
         protein_atoms = _selected_volume_polymer_atoms(parsed)
         retained_components = (
-            _selected_volume_components(parsed)
-            if run_settings.component_exclusion_policy == "unoccupied"
-            else ()
+            _selected_volume_components(parsed) if run_settings.component_exclusion_policy == "unoccupied" else ()
         )
         measured = measure_pocket_volume(
             candidate,
@@ -271,7 +266,7 @@ class StructurePocketService:
             retained_components=retained_components,
             settings=run_settings,
         )
-        provenance = _build_volume_provenance(
+        provenance = build_volume_provenance(
             parsed,
             candidate,
             run_settings,
@@ -282,11 +277,7 @@ class StructurePocketService:
             ("altloc_policy", parsed.selection.altloc_policy.value),
             ("hydrogen_policy", _VOLUME_HYDROGEN_POLICY),
         )
-        result_parameters = {
-            **dict(measured.provenance_parameters),
-            "altloc_policy": parsed.selection.altloc_policy.value,
-            "hydrogen_policy": _VOLUME_HYDROGEN_POLICY,
-        }
+        result_parameters = build_volume_result_parameters(parsed, candidate, measured.provenance_parameters)
         return replace(
             measured,
             provenance=provenance,
@@ -321,11 +312,7 @@ class StructurePocketService:
         selected_residues = define_site(definition, reference_residues, ligand_atoms=ligand_atoms)
         if definition.is_ligand_site:
             ligand = next(
-                (
-                    component
-                    for component in ligands
-                    if component.component_id == (definition.ligand_id or "")
-                ),
+                (component for component in ligands if component.component_id == (definition.ligand_id or "")),
                 None,
             )
             if ligand is None:
@@ -350,7 +337,7 @@ class StructurePocketService:
                 tuple(record.residue_id for record in selected_residues),
                 selection_mode=definition.mode.value,
             )
-        provenance = _build_focus_provenance(
+        provenance = build_focus_provenance(
             parsed,
             candidate_values,
             definition,
@@ -407,9 +394,7 @@ def _validate_candidate_lineage(candidate: PocketCandidate, parsed: ParsedStruct
         candidate.source_content_id != parsed.selection.content_id
         or candidate.selection_id != parsed.selection.selection_id
     ):
-        raise ValueError(
-            "candidate lineage does not match the parsed source content and selection"
-        )
+        raise ValueError("candidate lineage does not match the parsed source content and selection")
 
 
 def _selected_site_residue_records(parsed: ParsedStructure) -> tuple[ResidueRecord, ...]:
@@ -590,235 +575,6 @@ def _atom_id(component_id: str, atom: AtomRecord, index: int, used_ids: set[str]
         suffix += 1
     used_ids.add(candidate)
     return candidate
-
-
-def _build_provenance(
-    parsed: ParsedStructure,
-    settings: PocketDetectionSettings,
-    *,
-    input_atoms: int,
-) -> MethodProvenance:
-    settings_json = settings.to_json()
-    parameters: dict[str, object] = {
-        **settings_json,
-        "input_atoms": input_atoms,
-        "selection_id": parsed.selection.selection_id,
-        "selection": {
-            "model_id": parsed.selection.model_id,
-            "author_chain_ids": parsed.selection.author_chain_ids,
-            "label_chain_ids": parsed.selection.label_chain_ids,
-            "chain_locators": tuple(
-                {
-                    "author_chain_id": locator.author_chain_id,
-                    "label_chain_id": locator.label_chain_id,
-                    "entity_id": locator.entity_id,
-                }
-                for locator in parsed.selection.chain_locators
-            ),
-            "altloc_policy": parsed.selection.altloc_policy.value,
-            "assembly_scope": parsed.selection.assembly_scope.value,
-        },
-        "atom_scope": "selected_polymer_heavy_atoms",
-        "component_scope": "selected_model_and_chain_polymer_residue_records",
-        "solvent_exposure_policy": "grid_probe_connectivity_with_boundary_rejection",
-    }
-    return MethodProvenance(
-        method_id=_METHOD_ID,
-        method_version=_METHOD_VERSION,
-        parameters=cast(Mapping[str, FrozenJSON], parameters),
-        units=_settings_units(settings_json),
-        backend_versions={
-            "scipy": package_version("scipy"),
-            "pocket_radii": POCKET_RADII_VERSION,
-        },
-        input_hashes={
-            "raw_source": parsed.raw_source_hash,
-            "logical_content": parsed.selection.content_id,
-        },
-        analyzed_representation=parsed.selection.assembly_scope.value,
-    )
-
-
-def _build_volume_provenance(
-    parsed: ParsedStructure,
-    candidate: PocketCandidate | None,
-    settings: PocketVolumeSettings,
-    *,
-    polymer_atom_count: int,
-    component_ids: tuple[str, ...],
-) -> MethodProvenance:
-    """Build deterministic provenance for a bounded volume measurement."""
-
-    settings_json = settings.to_json()
-    selection = parsed.selection
-    selection_details = {
-        "selection_id": selection.selection_id,
-        "format": selection.format.value,
-        "model_id": selection.model_id,
-        "author_chain_ids": selection.author_chain_ids,
-        "label_chain_ids": selection.label_chain_ids,
-        "chain_locators": tuple(
-            {
-                "author_chain_id": locator.author_chain_id,
-                "label_chain_id": locator.label_chain_id,
-                "entity_id": locator.entity_id,
-            }
-            for locator in selection.chain_locators
-        ),
-        "altloc_policy": selection.altloc_policy.value,
-        "assembly_scope": selection.assembly_scope.value,
-    }
-    parameters: dict[str, object] = {
-        **settings_json,
-        "selection_id": selection.selection_id,
-        "selection": selection_details,
-        "model_id": selection.model_id,
-        "author_chain_ids": selection.author_chain_ids,
-        "label_chain_ids": selection.label_chain_ids,
-        "altloc_policy": selection.altloc_policy.value,
-        "assembly_scope": selection.assembly_scope.value,
-        "atom_scope": "selected_primary_polymer_heavy_atoms",
-        "component_scope": "selected_retained_ligand_ion_other_components",
-        "component_rules_version": POCKET_LIGAND_RULES_VERSION,
-        "hydrogen_policy": _VOLUME_HYDROGEN_POLICY,
-        "polymer_atom_count": polymer_atom_count,
-        "component_ids": component_ids,
-        "candidate_id": candidate.candidate_id if candidate is not None else None,
-        "candidate_lineage": (
-            {
-                "source_content_id": candidate.source_content_id,
-                "selection_id": candidate.selection_id,
-            }
-            if candidate is not None
-            else None
-        ),
-        "sphere_ids": (
-            tuple(sphere.sphere_id for sphere in candidate.alpha_spheres)
-            if candidate is not None
-            else ()
-        ),
-    }
-    units = {
-        "volume": "angstrom^3",
-        "length": "angstrom",
-        "coarse_grid_spacing_angstrom": "angstrom",
-        "fine_grid_spacing_angstrom": "angstrom",
-        "boundary_margin_angstrom": "angstrom",
-    }
-    return MethodProvenance(
-        method_id=_VOLUME_METHOD_ID,
-        method_version=_VOLUME_METHOD_VERSION,
-        parameters=cast(Mapping[str, FrozenJSON], parameters),
-        units=units,
-        backend_versions={
-            "numpy": package_version("numpy"),
-            "scipy": package_version("scipy"),
-            "pocket_radii": POCKET_RADII_VERSION,
-        },
-        input_hashes={
-            "raw_source": parsed.raw_source_hash,
-            "logical_content": selection.content_id,
-        },
-        analyzed_representation=selection.assembly_scope.value,
-    )
-
-
-def _build_focus_provenance(
-    parsed: ParsedStructure,
-    candidates: Sequence[PocketCandidate],
-    definition: SiteDefinition,
-    result: FocusedPocketSelection,
-) -> MethodProvenance:
-    """Bind a focused-pocket choice to its inputs, rules, and support evidence."""
-
-    selection = parsed.selection
-    parameters: dict[str, object] = {
-        "selection_id": selection.selection_id,
-        "model_id": selection.model_id,
-        "author_chain_ids": selection.author_chain_ids,
-        "label_chain_ids": selection.label_chain_ids,
-        "altloc_policy": selection.altloc_policy.value,
-        "assembly_scope": selection.assembly_scope.value,
-        "hydrogen_policy": _VOLUME_HYDROGEN_POLICY,
-        "focused_site_atom_scope": "selected_primary_heavy_atoms",
-        "ligand_rules_version": POCKET_LIGAND_RULES_VERSION,
-        "site_definition": {
-            "site_id": definition.site_id,
-            "name": definition.name,
-            "mode": definition.mode.value,
-            "reference_residues": tuple(_residue_provenance(item) for item in definition.reference_residues),
-            "center_residue": (
-                _residue_provenance(definition.center_residue)
-                if definition.center_residue is not None
-                else None
-            ),
-            "ligand_id": definition.ligand_id,
-            "radius_angstrom": definition.radius_angstrom,
-        },
-        "candidate_ids": tuple(sorted(candidate.candidate_id for candidate in candidates)),
-        "candidate_lineage": tuple(
-            {
-                "candidate_id": candidate.candidate_id,
-                "source_content_id": candidate.source_content_id,
-                "selection_id": candidate.selection_id,
-            }
-            for candidate in sorted(candidates, key=lambda item: item.candidate_id)
-        ),
-        "selected_candidate_id": result.candidate.candidate_id if result.candidate is not None else None,
-        "availability": result.availability.value,
-        "ligand_support": result.ligand_support.to_json() if result.ligand_support is not None else None,
-    }
-    return MethodProvenance(
-        method_id=_FOCUS_METHOD_ID,
-        method_version=_FOCUS_METHOD_VERSION,
-        parameters=cast(Mapping[str, FrozenJSON], parameters),
-        units={
-            "site_definition.radius_angstrom": "angstrom",
-            "ligand_support.ligand_center_distance_angstrom": "angstrom",
-            "ligand_support.atom_coverage_fraction": "fraction",
-            "ligand_support.lining_residue_overlap_fraction": "fraction",
-        },
-        backend_versions={"pocket_ligand_rules": POCKET_LIGAND_RULES_VERSION},
-        input_hashes={
-            "raw_source": parsed.raw_source_hash,
-            "logical_content": selection.content_id,
-        },
-        analyzed_representation=selection.assembly_scope.value,
-    )
-
-
-def _residue_provenance(residue: ResidueId) -> dict[str, str | None]:
-    return {
-        "structure_id": residue.structure_id,
-        "model_id": residue.model_id,
-        "chain_id": residue.chain_id,
-        "auth_seq_id": residue.auth_seq_id,
-        "insertion_code": residue.insertion_code,
-        "residue_name": residue.residue_name,
-    }
-
-
-def _settings_units(payload: Mapping[str, object], prefix: str = "") -> dict[str, str]:
-    units: dict[str, str] = {}
-    for key, value in payload.items():
-        path = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, Mapping):
-            units.update(_settings_units(value, path))
-            continue
-        leaf = key.casefold()
-        if "angstrom" in leaf or leaf.endswith("_radius") or "spacing" in leaf or "padding" in leaf or "margin" in leaf:
-            units[path] = "angstrom"
-        elif (
-            "count" in leaf
-            or "candidate" in leaf
-            or "atom" in leaf
-            or "simplex" in leaf
-            or "cluster_size" in leaf
-            or "cell" in leaf
-            or "check" in leaf
-        ):
-            units[path] = "count"
-    return units
 
 
 def _diagnostic(

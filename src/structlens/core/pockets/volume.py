@@ -11,13 +11,14 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from scipy.spatial import cKDTree  # type: ignore[import-untyped]
 
 from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
 from structlens.core.models import AtomRecord, ComponentKind, StructureComponent
+from structlens.core.provenance import FrozenJSON, MethodProvenance
 
 from .models import PocketCandidate
 from .radii import vdw_radius_angstrom
@@ -32,6 +33,7 @@ from .volume_models import (
     PocketVolumeSettings,
     _diagnostic,
     _finite,
+    validate_pocket_volume_result,
 )
 
 
@@ -310,8 +312,7 @@ def _active_exclusion_atoms(
         atom
         for atom in atoms
         if all(
-            coordinate + atom.radius_angstrom >= float(low)
-            and coordinate - atom.radius_angstrom <= float(high)
+            coordinate + atom.radius_angstrom >= float(low) and coordinate - atom.radius_angstrom <= float(high)
             for coordinate, low, high in zip(atom.coordinate, lower, upper, strict=True)
         )
     )
@@ -364,7 +365,9 @@ def _measure_grid(
     count = 0
     nx, ny, _ = shape
     plane = nx * ny
-    sphere_data = tuple((np.asarray(sphere.center_xyz, dtype=np.float64), sphere.radius_angstrom**2) for sphere in spheres)
+    sphere_data = tuple(
+        (np.asarray(sphere.center_xyz, dtype=np.float64), sphere.radius_angstrom**2) for sphere in spheres
+    )
     exclusion_neighbor_checks = 0
     for start in range(0, total, chunk_size):
         stop = min(total, start + chunk_size)
@@ -433,6 +436,7 @@ def _resource_result_without_grid(
         diagnostics=tuple(diagnostics),
         candidate_id=candidate.candidate_id,
         settings=settings,
+        provenance=_volume_provenance(candidate, settings),
     )
 
 
@@ -442,9 +446,17 @@ def _provenance_parameters(
 ) -> dict[str, object]:
     return {
         "radii_version": settings.radii_version,
+        "source_content_id": candidate.source_content_id,
+        "selection_id": candidate.selection_id,
         "candidate_id": candidate.candidate_id,
-        "sphere_ids": tuple(sphere.sphere_id for sphere in candidate.alpha_spheres),
+        "candidate_lineage": {
+            "candidate_id": candidate.candidate_id,
+            "source_content_id": candidate.source_content_id,
+            "selection_id": candidate.selection_id,
+        },
         "sphere_count": len(candidate.alpha_spheres),
+        "sphere_ids": tuple(sphere.sphere_id for sphere in candidate.alpha_spheres),
+        "sphere_radii_angstrom": tuple(sphere.radius_angstrom for sphere in candidate.alpha_spheres),
         "coarse_grid_spacing_angstrom": settings.coarse_grid_spacing_angstrom,
         "fine_grid_spacing_angstrom": settings.fine_grid_spacing_angstrom,
         "boundary_margin_angstrom": settings.boundary_margin_angstrom,
@@ -452,6 +464,26 @@ def _provenance_parameters(
         "grid_phase": _GRID_PHASE,
         "grid_sampling": _GRID_SAMPLING,
     }
+
+
+def _volume_provenance(candidate: PocketCandidate, settings: PocketVolumeSettings) -> MethodProvenance:
+    parameters = _provenance_parameters(candidate, settings)
+    return MethodProvenance(
+        method_id="structlens.pocket_free_volume",
+        method_version="0.4",
+        parameters=cast(dict[str, FrozenJSON], parameters),
+        units={
+            "volume": "angstrom^3",
+            "coarse_grid_spacing_angstrom": "angstrom",
+            "fine_grid_spacing_angstrom": "angstrom",
+            "boundary_margin_angstrom": "angstrom",
+            "sphere_radii_angstrom": "angstrom",
+        },
+        input_hashes={
+            "candidate": candidate.candidate_id,
+            "source_content": candidate.source_content_id or candidate.candidate_id,
+        },
+    )
 
 
 def _result(
@@ -472,24 +504,22 @@ def _result(
     parameters = _provenance_parameters(candidate, settings)
     parameters["active_exclusion_atom_count"] = len(exclusion_atoms)
     parameters["rotation_error_bound"] = "two_times_half_voxel_diagonal_boundary_shells"
-    signature = (
-        settings.radii_version,
-        candidate.candidate_id,
-        tuple(sphere.sphere_id for sphere in candidate.alpha_spheres),
-        settings.coarse_grid_spacing_angstrom,
-        settings.fine_grid_spacing_angstrom,
-        settings.boundary_margin_angstrom,
-        settings.component_exclusion_policy,
-        _GRID_PHASE,
-        _GRID_SAMPLING,
-    )
+    # Candidate identity and sphere selection are provenance, not method
+    # compatibility.  Measurements of two distinct candidates can therefore
+    # be compared when the declared method/settings are identical.
+    # Candidate geometry is observation/provenance, not method compatibility.
+    # The same declared algorithm/settings can compare measurements from
+    # different candidate sphere selections.
+    signature = (("method", "pocket_free_volume"),) + settings.compatibility_signature
     half_diagonal = math.sqrt(3.0) * settings.fine_grid_spacing_angstrom / 2.0
     boundary_radii = tuple(sphere.radius_angstrom for sphere in candidate.alpha_spheres) + tuple(
         atom.radius_angstrom for atom in exclusion_atoms
     )
-    error_bound = 2.0 * (4.0 / 3.0) * math.pi * sum(
-        (radius + half_diagonal) ** 3 - max(0.0, radius - half_diagonal) ** 3
-        for radius in boundary_radii
+    error_bound = (
+        2.0
+        * (4.0 / 3.0)
+        * math.pi
+        * sum((radius + half_diagonal) ** 3 - max(0.0, radius - half_diagonal) ** 3 for radius in boundary_radii)
     )
     return PocketVolumeResult(
         availability=availability,
@@ -510,6 +540,7 @@ def _result(
         candidate_id=candidate.candidate_id,
         compatibility_signature=signature,
         settings=settings,
+        provenance=_volume_provenance(candidate, settings),
     )
 
 
@@ -521,11 +552,14 @@ def compare_pocket_volumes(
 
     if not isinstance(reference, PocketVolumeResult) or not isinstance(target, PocketVolumeResult):
         raise TypeError("reference and target must be PocketVolumeResult values")
+    for result in (reference, target):
+        if result.availability is Availability.AVAILABLE:
+            validate_pocket_volume_result(result)
     if reference.compatibility_signature != target.compatibility_signature:
         diagnostic = _diagnostic(
             "pocket.volume.incompatible_settings",
             "Pocket volume deltas are disabled because method-defining inputs differ.",
-            remediation="Use the same radii table, sphere selection, grid settings, and component policy.",
+            remediation="Use the same method, grid settings, radii table, and component policy.",
         )
         return PocketVolumeComparison(
             availability=Availability.NOT_APPLICABLE,
@@ -536,6 +570,8 @@ def compare_pocket_volumes(
         availability = (
             Availability.NUMERICAL_FAILURE
             if Availability.NUMERICAL_FAILURE in {reference.availability, target.availability}
+            else Availability.INVALID_INPUT
+            if Availability.INVALID_INPUT in {reference.availability, target.availability}
             else Availability.NOT_APPLICABLE
         )
         return PocketVolumeComparison(
@@ -545,6 +581,9 @@ def compare_pocket_volumes(
             diagnostics=reference.diagnostics + target.diagnostics,
             units=_VOLUME_UNITS,
             compatibility_signature=reference.compatibility_signature,
+            reference_sensitivity=reference.sensitivity,
+            target_sensitivity=target.sensitivity,
+            provenance=tuple(item for item in (reference.provenance, target.provenance) if item is not None),
         )
     assert reference.fine_volume_angstrom3 is not None
     assert target.fine_volume_angstrom3 is not None
@@ -558,6 +597,9 @@ def compare_pocket_volumes(
         target_volume_angstrom3=target.fine_volume_angstrom3,
         units=_VOLUME_UNITS,
         compatibility_signature=reference.compatibility_signature,
+        reference_sensitivity=reference.sensitivity,
+        target_sensitivity=target.sensitivity,
+        provenance=tuple(item for item in (reference.provenance, target.provenance) if item is not None),
     )
 
 

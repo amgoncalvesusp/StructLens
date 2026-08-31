@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
+import structlens.core.pockets.volume_models as volume_models_module
+import structlens.core.provenance as provenance_module
 from structlens.core.evidence import Availability
 from structlens.core.models import AtomRecord, ComponentKind, ResidueId, StructureComponent
 from structlens.core.pockets import POCKET_RADII_VERSION, AlphaSphere, PocketCandidate
@@ -115,6 +117,24 @@ def _measure(
         retained_components=components,
         settings=settings or _settings(),
     )
+
+
+@pytest.mark.parametrize("contract", (PocketVolumeResult, PocketVolumeComparison))
+def test_volume_contracts_bound_units_before_copy_and_reject_oversized_strings(contract: type[object]) -> None:
+    class OversizedUnits(dict[str, str]):
+        def __len__(self) -> int:
+            return provenance_module.MAX_UNIT_MAP_ITEMS + 1
+
+        def items(self) -> object:
+            raise AssertionError("oversized units must be rejected before iteration")
+
+    with pytest.raises(ValueError, match="units.*item limit"):
+        contract(Availability.NOT_APPLICABLE, units=OversizedUnits())  # type: ignore[call-arg]
+
+    huge = "x" * (provenance_module.MAX_UNIT_STRING_LENGTH + 1)
+    for units in ({huge: "count"}, {"measure": huge}):
+        with pytest.raises(ValueError, match="units.*string length"):
+            contract(Availability.NOT_APPLICABLE, units=units)  # type: ignore[call-arg]
 
 
 def test_one_sphere_uses_cell_centers_and_has_exact_known_grid_count() -> None:
@@ -392,9 +412,7 @@ def test_rotation_bound_is_the_declared_half_diagonal_boundary_shell_bound() -> 
         settings=_settings(coarse=0.5, fine=0.5),
     )
     half_diagonal = math.sqrt(3.0) * 0.5 / 2.0
-    shell = (4.0 / 3.0) * math.pi * (
-        (1.0 + half_diagonal) ** 3 - (1.0 - half_diagonal) ** 3
-    )
+    shell = (4.0 / 3.0) * math.pi * ((1.0 + half_diagonal) ** 3 - (1.0 - half_diagonal) ** 3)
 
     assert result.rotation_error_bound_angstrom3 == pytest.approx(2.0 * shell)
 
@@ -410,9 +428,8 @@ def test_rotation_bound_includes_active_atom_exclusion_surfaces() -> None:
     )
     half_diagonal = math.sqrt(3.0) * settings.fine_grid_spacing_angstrom / 2.0
     hydrogen_radius = 1.2
-    exclusion_shell = (4.0 / 3.0) * math.pi * (
-        (hydrogen_radius + half_diagonal) ** 3
-        - (hydrogen_radius - half_diagonal) ** 3
+    exclusion_shell = (
+        (4.0 / 3.0) * math.pi * ((hydrogen_radius + half_diagonal) ** 3 - (hydrogen_radius - half_diagonal) ** 3)
     )
 
     assert excluded.rotation_error_bound_angstrom3 == pytest.approx(
@@ -451,10 +468,18 @@ def test_unknown_exclusion_radius_fails_closed_with_atom_identity() -> None:
 
 
 @pytest.mark.parametrize(
-    "difference",
-    ("radii", "spheres", "grid", "policy"),
+    ("difference", "expected_availability"),
+    (
+        ("radii", Availability.AVAILABLE),
+        ("spheres", Availability.AVAILABLE),
+        ("grid", Availability.NOT_APPLICABLE),
+        ("policy", Availability.NOT_APPLICABLE),
+    ),
 )
-def test_volume_comparison_disables_delta_when_method_defining_inputs_differ(difference: str) -> None:
+def test_volume_comparison_respects_settings_not_candidate_geometry(
+    difference: str,
+    expected_availability: Availability,
+) -> None:
     baseline_candidate = _candidate(_sphere((0.0, 0.0, 0.0), 1.0, 1))
     baseline_settings = _settings()
     baseline = _measure(baseline_candidate, settings=baseline_settings)
@@ -476,9 +501,17 @@ def test_volume_comparison_disables_delta_when_method_defining_inputs_differ(dif
 
     comparison = compare_pocket_volumes(baseline, other)
 
-    assert comparison.availability is Availability.NOT_APPLICABLE
-    assert comparison.delta_angstrom3 is None
-    assert any(item.code == "pocket.volume.incompatible_settings" for item in comparison.diagnostics)
+    assert comparison.availability is expected_availability
+    if expected_availability is Availability.NOT_APPLICABLE:
+        assert comparison.delta_angstrom3 is None
+        assert any(item.code == "pocket.volume.incompatible_settings" for item in comparison.diagnostics)
+        assert all("sphere selection" not in (item.remediation or "").casefold() for item in comparison.diagnostics)
+    else:
+        assert comparison.delta_angstrom3 == pytest.approx(other.fine_volume_angstrom3 - baseline.fine_volume_angstrom3)
+        assert comparison.compatibility_signature == baseline.compatibility_signature
+        assert other.provenance is not None
+        assert "sphere_ids" in other.provenance.parameters
+        assert "sphere_radii_angstrom" in other.provenance.parameters
 
 
 def test_volume_result_is_immutable_and_serializes_radii_version() -> None:
@@ -488,6 +521,182 @@ def test_volume_result_is_immutable_and_serializes_radii_version() -> None:
     assert result.to_json()["units"]["volume"] == "angstrom^3"
     with pytest.raises(FrozenInstanceError):
         result.coarse_volume_angstrom3 = 99.0  # type: ignore[misc]
+
+
+def test_volume_comparison_rejects_isolated_result_coherence_tampering() -> None:
+    candidate = _candidate(_sphere((0.0, 0.0, 0.0), 1.0, 1))
+    settings = _settings()
+    valid = _measure(candidate, settings=settings)
+    assert valid.provenance is not None
+
+    tampered_settings = replace(settings, fine_grid_spacing_angstrom=0.25)
+    tampered_signature = replace(
+        valid,
+        compatibility_signature=(("method", "pocket_free_volume"), ("fine_grid_spacing_angstrom", 0.25)),
+    )
+    tampered_result_parameters = replace(
+        valid,
+        provenance_parameters={
+            **valid.provenance_parameters,
+            "fine_grid_spacing_angstrom": 0.25,
+        },
+    )
+    tampered_method_parameters = replace(
+        valid,
+        provenance=replace(
+            valid.provenance,
+            parameters={
+                **valid.provenance.parameters,
+                "fine_grid_spacing_angstrom": 0.25,
+            },
+        ),
+    )
+    tampered_method_id = replace(valid, provenance=replace(valid.provenance, method_id="unknown.volume"))
+    tampered_without_settings = replace(valid, settings=None)
+
+    for tampered in (
+        replace(valid, settings=tampered_settings),
+        tampered_signature,
+        tampered_result_parameters,
+        tampered_method_parameters,
+        tampered_method_id,
+        tampered_without_settings,
+    ):
+        with pytest.raises(ValueError, match="coherent|method|settings|provenance"):
+            compare_pocket_volumes(valid, tampered)
+
+
+@pytest.mark.parametrize("container", ("result", "method"))
+@pytest.mark.parametrize("field", ("sphere_ids", "sphere_radii_angstrom", "sphere_count"))
+def test_core_volume_comparison_rejects_each_isolated_sphere_metadata_tampering(
+    container: str,
+    field: str,
+) -> None:
+    candidate = _candidate(_sphere((0.0, 0.0, 0.0), 1.0, 1))
+    valid = _measure(candidate, settings=_settings())
+    assert valid.provenance is not None
+    tampered_value: object
+    if field == "sphere_ids":
+        tampered_value = ("f" * 64,)
+    elif field == "sphere_radii_angstrom":
+        tampered_value = (9.0,)
+    else:
+        tampered_value = 2
+    if container == "result":
+        tampered = replace(
+            valid,
+            provenance_parameters={**valid.provenance_parameters, field: tampered_value},
+        )
+    else:
+        tampered = replace(
+            valid,
+            provenance=replace(
+                valid.provenance,
+                parameters={**valid.provenance.parameters, field: tampered_value},
+            ),
+        )
+
+    with pytest.raises(ValueError, match="sphere|provenance|coherent"):
+        compare_pocket_volumes(valid, tampered)
+
+
+@pytest.mark.parametrize("hash_name", ("candidate", "source_content"))
+def test_core_volume_comparison_rejects_each_forged_input_hash(hash_name: str) -> None:
+    valid = _measure(_candidate(_sphere((0.0, 0.0, 0.0), 1.0, 1)), settings=_settings())
+    assert valid.provenance is not None
+    input_hashes = dict(valid.provenance.input_hashes)
+    input_hashes[hash_name] = "f" * 64
+    tampered = replace(valid, provenance=replace(valid.provenance, input_hashes=input_hashes))
+
+    with pytest.raises(ValueError, match="hash|candidate|source|provenance"):
+        compare_pocket_volumes(valid, tampered)
+
+
+def test_core_volume_rejects_application_alias_without_application_schema() -> None:
+    valid = _measure(_candidate(_sphere((0.0, 0.0, 0.0), 1.0, 1)), settings=_settings())
+    assert valid.provenance is not None
+    aliased = replace(
+        valid,
+        provenance=replace(
+            valid.provenance,
+            method_id="structlens.pocket.volume",
+            method_version="0.4.0",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="application|schema|producer|selection|provenance"):
+        compare_pocket_volumes(valid, aliased)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "candidate_id",
+        "source_type",
+        "selection_type",
+        "partial_lineage",
+        "candidate_lineage",
+        "sphere_count_zero",
+        "sphere_count_mismatch",
+        "sphere_ids_not_sequence",
+        "sphere_ids_duplicate",
+        "sphere_radii_negative",
+        "sphere_limit",
+        "unknown_schema_field",
+        "backend_schema",
+    ),
+)
+def test_core_volume_strict_schema_rejects_malformed_coordinated_metadata(tamper: str) -> None:
+    candidate = replace(
+        _candidate(_sphere((0.0, 0.0, 0.0), 1.0, 1)),
+        source_content_id="a" * 64,
+        selection_id="b" * 64,
+    )
+    valid = _measure(candidate, settings=_settings())
+    assert valid.provenance is not None
+    result_parameters = dict(valid.provenance_parameters)
+    method_parameters = dict(valid.provenance.parameters)
+    provenance_kwargs: dict[str, object] = {}
+    if tamper == "candidate_id":
+        result_parameters["candidate_id"] = method_parameters["candidate_id"] = "f" * 64
+    elif tamper == "source_type":
+        result_parameters["source_content_id"] = method_parameters["source_content_id"] = 1
+    elif tamper == "selection_type":
+        result_parameters["selection_id"] = method_parameters["selection_id"] = 1
+    elif tamper == "partial_lineage":
+        result_parameters["source_content_id"] = method_parameters["source_content_id"] = None
+    elif tamper == "candidate_lineage":
+        result_parameters["candidate_lineage"] = method_parameters["candidate_lineage"] = {"invalid": True}
+    elif tamper == "sphere_count_zero":
+        result_parameters["sphere_count"] = method_parameters["sphere_count"] = 0
+    elif tamper == "sphere_count_mismatch":
+        result_parameters["sphere_count"] = method_parameters["sphere_count"] = 2
+    elif tamper == "sphere_ids_not_sequence":
+        result_parameters["sphere_ids"] = method_parameters["sphere_ids"] = "not-a-sequence"
+    elif tamper == "sphere_ids_duplicate":
+        sphere_id = candidate.alpha_spheres[0].sphere_id
+        result_parameters["sphere_count"] = method_parameters["sphere_count"] = 2
+        result_parameters["sphere_ids"] = method_parameters["sphere_ids"] = (sphere_id, sphere_id)
+        result_parameters["sphere_radii_angstrom"] = method_parameters["sphere_radii_angstrom"] = (1.0, 1.0)
+    elif tamper == "sphere_radii_negative":
+        result_parameters["sphere_radii_angstrom"] = method_parameters["sphere_radii_angstrom"] = (-1.0,)
+    elif tamper == "sphere_limit":
+        oversized = tuple(
+            f"{index:064x}" for index in range(volume_models_module.PocketVolumeSettings().max_sphere_count + 1)
+        )
+        result_parameters["sphere_ids"] = method_parameters["sphere_ids"] = oversized
+    elif tamper == "unknown_schema_field":
+        method_parameters["unexpected"] = True
+    else:
+        provenance_kwargs["backend_versions"] = {"unexpected": "1"}
+    tampered = replace(
+        valid,
+        provenance_parameters=result_parameters,
+        provenance=replace(valid.provenance, parameters=method_parameters, **provenance_kwargs),
+    )
+
+    with pytest.raises(ValueError, match="candidate|source|selection|lineage|sphere|schema|producer"):
+        compare_pocket_volumes(valid, tampered)
 
 
 def test_volume_settings_reject_a_radii_version_not_used_by_the_calculation() -> None:
@@ -606,8 +815,8 @@ def test_volume_result_rejects_incoherent_availability_payloads() -> None:
         ({"sensitivity": object()}, TypeError, "sensitivity"),
         ({"provenance": object()}, TypeError, "provenance"),
         ({"candidate_id": "  "}, ValueError, "candidate_id"),
-        ({"units": {"": "angstrom^3"}}, ValueError, "mapping keys"),
-        ({"units": {"volume": math.inf}}, ValueError, "finite"),
+        ({"units": {"": "angstrom^3"}}, ValueError, "non-empty.*strings"),
+        ({"units": {"volume": math.inf}}, ValueError, "non-empty.*strings"),
         ({"provenance_parameters": {"selection": object()}}, TypeError, "unsupported JSON value type"),
     ),
 )
@@ -660,8 +869,6 @@ def test_compatible_volume_comparison_reports_target_minus_reference() -> None:
     comparison = compare_pocket_volumes(reference, target)
 
     assert comparison.availability is Availability.AVAILABLE
-    assert comparison.delta_angstrom3 == pytest.approx(
-        target.fine_volume_angstrom3 - reference.fine_volume_angstrom3
-    )
+    assert comparison.delta_angstrom3 == pytest.approx(target.fine_volume_angstrom3 - reference.fine_volume_angstrom3)
     assert comparison.reference_volume_angstrom3 == reference.fine_volume_angstrom3
     assert comparison.target_volume_angstrom3 == target.fine_volume_angstrom3

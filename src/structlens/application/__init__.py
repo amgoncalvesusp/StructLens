@@ -17,6 +17,7 @@ from .dto import AnalysisReportRequest
 from .interaction_service import InteractionAnalysisService
 from .msa_service import MuscleAlignmentEngine, align_sequences, parse_alignment
 from .mutation_service import MutationService
+from .pocket_comparison_service import PocketComparisonReport, PocketComparisonService
 from .project_state import ProjectState
 from .quality_service import StructureQualityService, assess_structure_quality
 from .report_service import ReportService
@@ -29,6 +30,8 @@ __all__ = [
     "ChartDataset",
     "MatrixDataset",
     "MutationService",
+    "PocketComparisonReport",
+    "PocketComparisonService",
     "ProjectState",
     "ReportService",
     "StructureQualityService",

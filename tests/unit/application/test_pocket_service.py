@@ -146,9 +146,9 @@ def test_pocket_service_detects_buried_pockets_and_records_provenance() -> None:
 
 
 def test_pocket_service_reports_not_detected_for_open_cavity() -> None:
-    report = StructurePocketService(
-        PocketDetectionSettings(solvent_grid_spacing_angstrom=0.75)
-    ).analyze(_parsed_shell(open_face=True))
+    report = StructurePocketService(PocketDetectionSettings(solvent_grid_spacing_angstrom=0.75)).analyze(
+        _parsed_shell(open_face=True)
+    )
 
     assert report.availability is Availability.NOT_DETECTED
     assert report.candidates == ()
@@ -164,9 +164,7 @@ def test_pocket_service_honors_cancellation_before_work_starts() -> None:
 
 
 def test_pocket_service_surfaces_resource_limit_as_a_typed_failure() -> None:
-    report = StructurePocketService(
-        PocketDetectionSettings(max_estimated_simplices=10)
-    ).analyze(_parsed_shell())
+    report = StructurePocketService(PocketDetectionSettings(max_estimated_simplices=10)).analyze(_parsed_shell())
 
     assert report.availability is Availability.NUMERICAL_FAILURE
     assert report.candidates == ()
@@ -362,7 +360,7 @@ def test_pocket_service_selects_the_best_candidate_for_a_key_residue_site() -> N
                 center_xyz=(0.0, 0.0, 0.0),
                 radius_angstrom=2.0,
                 touching_atom_ids=("a1", "a2", "a3", "a4"),
-                 lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
+                lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
                 source_simplex_atom_ids=("a1", "a2", "a3", "a4"),
             ),
         )
@@ -373,7 +371,7 @@ def test_pocket_service_selects_the_best_candidate_for_a_key_residue_site() -> N
                 center_xyz=(4.0, 0.0, 0.0),
                 radius_angstrom=2.0,
                 touching_atom_ids=("b1", "b2", "b3", "b4"),
-                 lining_residues=(parsed.protein_structure.chains[0].residue_records[1].residue_id,),
+                lining_residues=(parsed.protein_structure.chains[0].residue_records[1].residue_id,),
                 source_simplex_atom_ids=("b1", "b2", "b3", "b4"),
             ),
         )
@@ -452,7 +450,7 @@ def test_pocket_service_reports_no_eligible_ligand_for_buffer_only_sites() -> No
                 center_xyz=(0.0, 0.0, 0.0),
                 radius_angstrom=2.0,
                 touching_atom_ids=("c1", "c2", "c3", "c4"),
-                 lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
+                lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
                 source_simplex_atom_ids=("c1", "c2", "c3", "c4"),
             ),
         )
@@ -503,7 +501,7 @@ def test_pocket_service_retains_ligand_support_and_focus_provenance() -> None:
                 center_xyz=(0.0, 0.0, 0.0),
                 radius_angstrom=2.0,
                 touching_atom_ids=("d1", "d2", "d3", "d4"),
-                 lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
+                lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
                 source_simplex_atom_ids=("d1", "d2", "d3", "d4"),
             ),
         )

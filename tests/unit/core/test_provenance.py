@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+import structlens.core.provenance as provenance_module
 from structlens.core.models.results import AnalysisResult
 from structlens.core.provenance import AuditEvent, MethodProvenance
 
@@ -39,6 +40,23 @@ def test_method_provenance_deep_freezes_and_converts_to_json() -> None:
         provenance.parameters["nested"]["enabled"] = False  # type: ignore[index]
     with pytest.raises(FrozenInstanceError):
         provenance.method_id = "changed"  # type: ignore[misc]
+
+
+def test_method_provenance_bounds_units_before_copy_and_rejects_oversized_strings() -> None:
+    class OversizedUnits(dict[str, str]):
+        def __len__(self) -> int:
+            return provenance_module.MAX_UNIT_MAP_ITEMS + 1
+
+        def items(self) -> object:
+            raise AssertionError("oversized units must be rejected before iteration")
+
+    with pytest.raises(ValueError, match="units.*item limit"):
+        MethodProvenance("structlens.test", "1", units=OversizedUnits(), input_hashes={"target": HASH_A})
+
+    huge = "x" * (provenance_module.MAX_UNIT_STRING_LENGTH + 1)
+    for units in ({huge: "count"}, {"measure": huge}):
+        with pytest.raises(ValueError, match="units.*string length"):
+            MethodProvenance("structlens.test", "1", units=units, input_hashes={"target": HASH_A})
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
@@ -169,7 +187,10 @@ def test_artifact_id_and_canonical_bytes_exclude_audit_time() -> None:
     assert first.artifact_id == second.artifact_id
     assert first.canonical_bytes() == second.canonical_bytes()
     assert first.with_audit_event(first_event)["scientific"] == second.with_audit_event(second_event)["scientific"]
-    assert first.with_audit_event(first_event)["audit_event"]["occurred_at"] != second.with_audit_event(second_event)["audit_event"]["occurred_at"]
+    assert (
+        first.with_audit_event(first_event)["audit_event"]["occurred_at"]
+        != second.with_audit_event(second_event)["audit_event"]["occurred_at"]
+    )
 
 
 def test_analysis_result_requires_typed_record_in_explicit_field() -> None:

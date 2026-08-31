@@ -162,6 +162,7 @@ class EvidenceCard:
     quality: EvidenceQuality = field(default_factory=EvidenceQuality)
     schema_version: str = "3.0"
     provenance: tuple[str, ...] = field(default_factory=tuple)
+    pocket_sections: object | None = None
 
     def __init__(
         self,
@@ -174,6 +175,7 @@ class EvidenceCard:
         quality: EvidenceQuality | None = None,
         schema_version: str = "3.0",
         provenance: tuple[str, ...] = (),
+        pocket_sections: object | None = None,
         **legacy: object,
     ) -> None:
         if "residue_ref" in legacy:
@@ -199,6 +201,7 @@ class EvidenceCard:
         object.__setattr__(self, "quality", quality or EvidenceQuality())
         object.__setattr__(self, "schema_version", schema_version)
         object.__setattr__(self, "provenance", tuple(provenance))
+        object.__setattr__(self, "pocket_sections", pocket_sections)
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -215,6 +218,8 @@ class EvidenceCard:
                 raise TypeError(f"{name} must be a {expected.__name__}")
         if not self.schema_version:
             raise ValueError("schema_version must not be empty")
+        if self.pocket_sections is not None and not hasattr(self.pocket_sections, "to_mapping"):
+            raise TypeError("pocket_sections must expose typed concordance channels")
         object.__setattr__(self, "provenance", tuple(self.provenance))
 
     @property
@@ -237,10 +242,24 @@ class EvidenceCard:
     def site_evidence(self) -> SiteEvidence:
         return self.site
 
+    @property
+    def pocket_concordance(self) -> object | None:
+        return self.pocket_sections
+
+    @property
+    def concordance(self) -> object | None:
+        return self.pocket_sections
+
 
 ResidueEvidenceCard = EvidenceCard
 
-from .builder import EvidenceCardBuilder, build_evidence_card  # noqa: E402
+from .builder import (  # noqa: E402
+    POCKET_CONCORDANCE_CHANNELS,
+    EvidenceCardBuilder,
+    PocketEvidenceChannel,
+    PocketEvidenceSections,
+    build_evidence_card,
+)
 from .completeness import quality_for_sections  # noqa: E402
 from .formatting import format_evidence_card  # noqa: E402
 
@@ -258,6 +277,9 @@ __all__ = [
     "SiteEvidence",
     "StructureEvidence",
     "EvidenceCardBuilder",
+    "PocketEvidenceChannel",
+    "PocketEvidenceSections",
+    "POCKET_CONCORDANCE_CHANNELS",
     "build_evidence_card",
     "format_evidence_card",
     "quality_for_sections",

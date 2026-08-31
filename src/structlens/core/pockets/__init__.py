@@ -1,5 +1,12 @@
 """Pocket-geometry primitives for structural reliability workflows."""
 
+from .comparison import (
+    PocketComparison,
+    PocketSurfaceMeasurement,
+    compare_pocket_candidates,
+    compare_pocket_match,
+    compare_pockets,
+)
 from .delaunay import PocketAtom, alpha_sphere_from_simplex, detect_alpha_spheres
 from .focused import (
     FocusedPocketSelection,
@@ -12,6 +19,17 @@ from .ligands import (
     PocketLigandSupport,
     eligible_pocket_ligands,
     measure_ligand_support,
+)
+from .matching import (
+    PocketMatch,
+    PocketMatchingResult,
+    PocketMatchingSettings,
+    PocketMatchKind,
+    PocketMatchState,
+    PocketMatchStatus,
+    match_candidates,
+    match_pocket_candidates,
+    match_pockets,
 )
 from .models import (
     AlphaSphere,
@@ -46,11 +64,25 @@ __all__ = [
     "PocketDetectionSettings",
     "PocketGeometrySettings",
     "PocketLigandSupport",
+    "PocketComparison",
+    "PocketSurfaceMeasurement",
+    "PocketMatch",
+    "PocketMatchKind",
+    "PocketMatchState",
+    "PocketMatchStatus",
+    "PocketMatchingResult",
+    "PocketMatchingSettings",
     "tetrahedron_circumsphere",
     "alpha_sphere_from_simplex",
     "detect_alpha_spheres",
     "eligible_pocket_ligands",
     "measure_ligand_support",
+    "compare_pocket_candidates",
+    "compare_pocket_match",
+    "compare_pockets",
+    "match_candidates",
+    "match_pocket_candidates",
+    "match_pockets",
     "select_candidate_by_ligand_support",
     "select_candidate_by_seed_residues",
     "vdw_radius_angstrom",

@@ -63,6 +63,8 @@ _SUPPORTED_UNITS = {
     "percent",
     "%",
 }
+MAX_UNIT_MAP_ITEMS = 256
+MAX_UNIT_STRING_LENGTH = 1_024
 
 
 def _freeze(value: object, *, path: str) -> FrozenJSON:
@@ -99,6 +101,18 @@ def _json_ready(value: FrozenJSON) -> JSONScalar | list[object] | dict[str, obje
     return value
 
 
+def freeze_json(value: object, *, path: str = "value") -> FrozenJSON:
+    """Public boundary helper returning recursively immutable JSON data."""
+
+    return _freeze(value, path=path)
+
+
+def json_ready(value: FrozenJSON) -> JSONScalar | list[object] | dict[str, object]:
+    """Return a fresh mutable JSON-compatible copy of frozen data."""
+
+    return _json_ready(value)
+
+
 def _canonical_bytes(value: Mapping[str, object]) -> bytes:
     return json.dumps(
         value,
@@ -117,25 +131,36 @@ def _validate_text(value: str, field_name: str) -> str:
     return value
 
 
-def _freeze_string_map(values: Mapping[str, str], field_name: str) -> Mapping[str, str]:
+def freeze_bounded_string_map(
+    values: Mapping[str, str],
+    *,
+    field_name: str,
+    maximum_items: int = MAX_UNIT_MAP_ITEMS,
+    maximum_string_length: int = MAX_UNIT_STRING_LENGTH,
+) -> Mapping[str, str]:
+    """Validate and snapshot a small public string map before materialization."""
+
     if not isinstance(values, Mapping):
         raise TypeError(f"{field_name} must be a mapping")
+    if len(values) > maximum_items:
+        raise ValueError(f"{field_name} exceed the maximum item limit")
     frozen: dict[str, str] = {}
     for key, value in values.items():
-        _validate_text(key, f"{field_name} key")
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{field_name} values must be non-empty strings")
+        if not isinstance(key, str) or not key.strip() or not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field_name} must map non-empty names to non-empty strings")
+        if len(key) > maximum_string_length or len(value) > maximum_string_length:
+            raise ValueError(f"{field_name} exceed the maximum string length")
         frozen[key] = value
     return MappingProxyType(frozen)
 
 
+def _freeze_string_map(values: Mapping[str, str], field_name: str) -> Mapping[str, str]:
+    return freeze_bounded_string_map(values, field_name=field_name)
+
+
 def _freeze_units(values: Mapping[str, str]) -> Mapping[str, str]:
     frozen = _freeze_string_map(values, "units")
-    unsupported = [
-        f"{name}={unit!r}"
-        for name, unit in frozen.items()
-        if unit.casefold() not in _SUPPORTED_UNITS
-    ]
+    unsupported = [f"{name}={unit!r}" for name, unit in frozen.items() if unit.casefold() not in _SUPPORTED_UNITS]
     if unsupported:
         raise ValueError(f"unsupported unit(s): {', '.join(sorted(unsupported))}")
     return frozen
@@ -272,9 +297,7 @@ class MethodProvenance:
         input_hashes = MappingProxyType({source: digest.lower() for source, digest in input_hashes.items()})
 
         missing_units = [
-            path
-            for path, _ in _parameter_paths(parameters)
-            if _requires_unit(path) and _unit_key(path) not in units
+            path for path, _ in _parameter_paths(parameters) if _requires_unit(path) and _unit_key(path) not in units
         ]
         if missing_units:
             joined = ", ".join(sorted(missing_units))
@@ -287,7 +310,9 @@ class MethodProvenance:
             and _unit_dimension(units[_unit_key(path)]) != _dimension_for(path)
         ]
         if incompatible_units:
-            details = ", ".join(f"{path}={unit!r} (expected {dimension})" for path, unit, dimension in incompatible_units)
+            details = ", ".join(
+                f"{path}={unit!r} (expected {dimension})" for path, unit, dimension in incompatible_units
+            )
             raise ValueError(f"incompatible unit(s): {details}")
 
         object.__setattr__(self, "parameters", parameters)
@@ -375,4 +400,14 @@ class MethodProvenance:
         return hash(self.artifact_id)
 
 
-__all__ = ["AuditEvent", "FrozenJSON", "JSONScalar", "MethodProvenance"]
+__all__ = [
+    "AuditEvent",
+    "FrozenJSON",
+    "JSONScalar",
+    "MAX_UNIT_MAP_ITEMS",
+    "MAX_UNIT_STRING_LENGTH",
+    "MethodProvenance",
+    "freeze_bounded_string_map",
+    "freeze_json",
+    "json_ready",
+]
