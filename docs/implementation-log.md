@@ -305,3 +305,34 @@
   reported 381 passed; Ruff passed on the touched paths; and mypy succeeded
   across 138 source files. The only root-collection errors now belong to Task 7
   RED tests awaiting the blind pocket detector implementation.
+- 2026-08-31 Task 7 (blind alpha-sphere detector): RED synthetic tests first
+  covered sealed/open and separated cavities, input reordering, rigid transforms,
+  coordinate jitter, underspecified/unknown-radius inputs, non-vertex VDW
+  intrusion, Qhull failures, candidate caps, progress/cancellation, and resource
+  limits. GREEN added bounded SciPy Delaunay tessellation, deterministic
+  union-find clustering, transparent geometric ranking components, and an
+  application service with explicit availability, diagnostics, counts, and
+  provenance. A scientific review then found six HIGH defects before acceptance:
+  atom-centre radii were stored instead of physical VDW clearance; all-atom and
+  grid work were quadratic; exposure checked only sphere centres; provenance did
+  not bind the input selection; chain selection could be widened; and invalid or
+  cancelled direct results collapsed to `not_detected`. The corrected detector
+  now stores and range-filters exact `distance(center, atom) - vdw_radius`
+  clearance, rejects closer non-vertex surfaces through `cKDTree` queries, derives
+  lining residues from surface clearance, rasterizes only atom-local grid boxes,
+  flood-fills boundary solvent once, tests every free candidate-region cell, and
+  enforces separate simplex, clearance-check, grid-cell, and raster-work budgets.
+  It reads only normalized selected-chain/model residue records (therefore also
+  the selected altloc policy), binds full selection identity/details into method
+  provenance, and keeps invalid input, cancellation, numerical failure, valid no
+  detection, and available candidates distinct.
+- 2026-08-31 Task 7 gate: `python -m pytest tests/unit/core/pockets
+  tests/unit/application/test_pocket_service.py --cov=src/structlens/core/pockets
+  --cov-branch --cov-report=term-missing --cov-fail-under=90 -q` reported 98
+  passed and 93.06% total branch-aware coverage. `python -m pytest -q` reported
+  462 passed; `python -m ruff check .` passed; `python -m mypy src` succeeded
+  across 142 source files; `python -m pip_audit .` reported no known
+  vulnerabilities; and `git diff --check` was clean apart from existing
+  LF-to-CRLF notices. Fresh independent Terra scientific/integration and
+  code/security re-reviews found no remaining CRITICAL/HIGH issue. The next
+  accepted item is Task 8, pocket free-volume measurement.

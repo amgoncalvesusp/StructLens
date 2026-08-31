@@ -9,6 +9,7 @@ from structlens.core.models import ResidueId
 from structlens.core.pockets import (
     AlphaSphere,
     PocketCandidate,
+    PocketDetectionSettings,
     PocketGeometrySettings,
 )
 
@@ -99,6 +100,63 @@ def test_pocket_geometry_settings_reject_nonfinite_and_negative_values(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         PocketGeometrySettings(**kwargs)
+
+
+def test_pocket_detection_settings_validate_caps_and_nested_geometry() -> None:
+    settings = PocketDetectionSettings(
+        geometry=PocketGeometrySettings(minimum_alpha_sphere_radius_angstrom=3.0),
+        cluster_distance_padding_angstrom=1.25,
+        solvent_grid_spacing_angstrom=0.75,
+        solvent_boundary_margin_angstrom=2.5,
+        minimum_cluster_size=2,
+        maximum_candidates=4,
+        max_atom_count=200,
+        max_estimated_simplices=5000,
+        max_solvent_grid_cells=6000,
+        max_clearance_atom_checks=7000,
+        max_solvent_raster_cells=8000,
+    )
+
+    assert settings.to_json() == {
+        "geometry": {
+            "minimum_alpha_sphere_radius_angstrom": 3.0,
+            "maximum_alpha_sphere_radius_angstrom": 6.2,
+            "probe_radius_angstrom": 1.4,
+            "lining_contact_slack_angstrom": 0.5,
+        },
+        "cluster_distance_padding_angstrom": 1.25,
+        "solvent_grid_spacing_angstrom": 0.75,
+        "solvent_boundary_margin_angstrom": 2.5,
+        "minimum_cluster_size": 2,
+        "maximum_candidates": 4,
+        "max_atom_count": 200,
+        "max_estimated_simplices": 5000,
+        "max_solvent_grid_cells": 6000,
+        "max_clearance_atom_checks": 7000,
+        "max_solvent_raster_cells": 8000,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    (
+        ({"cluster_distance_padding_angstrom": -0.1}, "non-negative"),
+        ({"solvent_grid_spacing_angstrom": 0.0}, "positive"),
+        ({"minimum_cluster_size": 0}, "positive integer"),
+        ({"maximum_candidates": 0}, "positive integer"),
+        ({"max_atom_count": 0}, "positive integer"),
+        ({"max_estimated_simplices": 0}, "positive integer"),
+        ({"max_solvent_grid_cells": 0}, "positive integer"),
+        ({"max_clearance_atom_checks": 0}, "positive integer"),
+        ({"max_solvent_raster_cells": 0}, "positive integer"),
+    ),
+)
+def test_pocket_detection_settings_reject_invalid_ranges(
+    kwargs: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        PocketDetectionSettings(**kwargs)
 
 
 @pytest.mark.parametrize(

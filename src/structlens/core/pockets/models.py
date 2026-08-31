@@ -11,6 +11,7 @@ import json
 import math
 from dataclasses import dataclass, field
 
+from structlens.core.evidence import Availability, Diagnostic
 from structlens.core.models import ResidueId
 
 JSONScalar = str | int | float | bool | None
@@ -36,6 +37,12 @@ def _finite(value: float, name: str, *, positive: bool = False, non_negative: bo
     if non_negative and numeric < 0.0:
         raise ValueError(f"{name} must be non-negative")
     return numeric
+
+
+def _positive_int(value: int, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 def _atom_ids(values: tuple[str, ...], name: str, *, expected_count: int | None = None) -> tuple[str, ...]:
@@ -86,6 +93,8 @@ def _residue_json(residue: ResidueId) -> dict[str, JSONValue]:
 
 @dataclass(frozen=True, slots=True)
 class PocketGeometrySettings:
+    """Physical pocket settings; alpha radii are free VDW clearances."""
+
     minimum_alpha_sphere_radius_angstrom: float = 2.8
     maximum_alpha_sphere_radius_angstrom: float = 6.2
     probe_radius_angstrom: float = 1.4
@@ -139,7 +148,71 @@ class PocketGeometrySettings:
 
 
 @dataclass(frozen=True, slots=True)
+class PocketDetectionSettings:
+    """Bounded, reproducible settings for blind pocket detection.
+
+    The detector is deliberately parameterized at the domain boundary.  In
+    particular, Delaunay tessellation is never allowed to allocate based only
+    on untrusted input size; both atom and estimated-simplex caps are applied
+    before SciPy is called.
+    """
+
+    geometry: PocketGeometrySettings = field(default_factory=PocketGeometrySettings)
+    cluster_distance_padding_angstrom: float = 1.0
+    solvent_grid_spacing_angstrom: float = 0.5
+    solvent_boundary_margin_angstrom: float = 4.0
+    minimum_cluster_size: int = 2
+    maximum_candidates: int = 20
+    max_atom_count: int = 50_000
+    max_estimated_simplices: int = 2_000_000
+    max_solvent_grid_cells: int = 2_000_000
+    max_clearance_atom_checks: int = 20_000_000
+    max_solvent_raster_cells: int = 20_000_000
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.geometry, PocketGeometrySettings):
+            raise TypeError("geometry must be PocketGeometrySettings")
+        for name in (
+            "cluster_distance_padding_angstrom",
+            "solvent_boundary_margin_angstrom",
+        ):
+            value = _finite(getattr(self, name), name, non_negative=True)
+            object.__setattr__(self, name, value)
+        spacing = _finite(self.solvent_grid_spacing_angstrom, "solvent_grid_spacing_angstrom", positive=True)
+        object.__setattr__(self, "solvent_grid_spacing_angstrom", spacing)
+        for name in (
+            "minimum_cluster_size",
+            "maximum_candidates",
+            "max_atom_count",
+            "max_estimated_simplices",
+            "max_solvent_grid_cells",
+            "max_clearance_atom_checks",
+            "max_solvent_raster_cells",
+        ):
+            object.__setattr__(self, name, _positive_int(getattr(self, name), name))
+
+    def to_json(self) -> dict[str, JSONValue]:
+        """Return a fresh JSON-compatible copy of the detector policy."""
+
+        return {
+            "geometry": self.geometry.to_json(),
+            "cluster_distance_padding_angstrom": self.cluster_distance_padding_angstrom,
+            "solvent_grid_spacing_angstrom": self.solvent_grid_spacing_angstrom,
+            "solvent_boundary_margin_angstrom": self.solvent_boundary_margin_angstrom,
+            "minimum_cluster_size": self.minimum_cluster_size,
+            "maximum_candidates": self.maximum_candidates,
+            "max_atom_count": self.max_atom_count,
+            "max_estimated_simplices": self.max_estimated_simplices,
+            "max_solvent_grid_cells": self.max_solvent_grid_cells,
+            "max_clearance_atom_checks": self.max_clearance_atom_checks,
+            "max_solvent_raster_cells": self.max_solvent_raster_cells,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class AlphaSphere:
+    """A Delaunay center with ``radius_angstrom`` equal to free VDW clearance."""
+
     center_xyz: tuple[float, float, float]
     radius_angstrom: float
     touching_atom_ids: tuple[str, ...]
@@ -238,8 +311,58 @@ class PocketCandidate:
         return _canonical_bytes(self.to_json())
 
 
+@dataclass(frozen=True, slots=True)
+class AlphaSphereDetectionResult:
+    """Immutable alpha-sphere output with explicit no-pocket semantics."""
+
+    spheres: tuple[AlphaSphere, ...] = field(default_factory=tuple)
+    diagnostics: tuple[Diagnostic, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        spheres = tuple(self.spheres)
+        if any(not isinstance(item, AlphaSphere) for item in spheres):
+            raise TypeError("spheres must contain AlphaSphere values")
+        diagnostics = tuple(self.diagnostics)
+        if any(not isinstance(item, Diagnostic) for item in diagnostics):
+            raise TypeError("diagnostics must contain Diagnostic values")
+        object.__setattr__(self, "spheres", tuple(sorted(spheres, key=lambda item: item.sphere_id)))
+        object.__setattr__(self, "diagnostics", diagnostics)
+
+    @property
+    def availability(self) -> Availability:
+        codes = {item.code for item in self.diagnostics}
+        if "pocket.detect.cancelled" in codes:
+            return Availability.NOT_APPLICABLE
+        if codes & {"pocket.detect.resource_limit", "pocket.detect.qhull_failure"}:
+            return Availability.NUMERICAL_FAILURE
+        if codes & {"pocket.detect.insufficient_atoms", "pocket.detect.duplicate_atom_id"}:
+            return Availability.INVALID_INPUT
+        if self.spheres:
+            return Availability.AVAILABLE
+        return Availability.NOT_DETECTED
+
+    @property
+    def status(self) -> Availability:
+        """Compatibility alias for consumers that call state ``status``."""
+
+        return self.availability
+
+    @property
+    def has_spheres(self) -> bool:
+        return bool(self.spheres)
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "availability": self.availability.value,
+            "spheres": [item.to_json() for item in self.spheres],
+            "diagnostics": [item.to_json() for item in self.diagnostics],
+        }
+
+
 __all__ = [
     "AlphaSphere",
+    "AlphaSphereDetectionResult",
     "PocketCandidate",
+    "PocketDetectionSettings",
     "PocketGeometrySettings",
 ]
