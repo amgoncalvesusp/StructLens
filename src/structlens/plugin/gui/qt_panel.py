@@ -1836,6 +1836,7 @@ class PanelController:
                 targets={result.target_id: self.target_structure},
                 analysis=result,
                 provenance=dict(result.provenance),
+                method_provenance=result.method_provenance,
                 **self._v03_bundle_kwargs(),
             )
             self._set_status(f"Validated PyMOL bundle written · {Path(path).name}")
@@ -1860,6 +1861,7 @@ class PanelController:
                 targets={result.target_id: self.target_structure},
                 analysis=result,
                 provenance=dict(result.provenance),
+                method_provenance=result.method_provenance,
                 **self._v03_bundle_kwargs(),
             )
             launcher = PyMOLLauncher(self.pymol_edit.text().strip() or None)

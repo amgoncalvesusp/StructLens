@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from structlens.core.models.correspondence import ResidueCorrespondence
 from structlens.core.models.mutation import MutationEvent
+from structlens.core.provenance import MethodProvenance
 
 if TYPE_CHECKING:
     from .multi import StructuralTransform
@@ -30,11 +31,21 @@ class AnalysisResult:
     refined_residue_count: int | None = None
     excluded_alignment_indices: tuple[int, ...] = ()
     tm_score: float | None = None
+    # Keep the v0.3 flat mapping separate from the typed scientific contract.
     provenance: Mapping[str, str] = field(default_factory=dict)
     transform: StructuralTransform | None = None
+    method_provenance: MethodProvenance | None = None
 
     def __post_init__(self) -> None:
+        if isinstance(self.provenance, MethodProvenance):
+            raise TypeError("pass typed provenance via method_provenance, not legacy provenance")
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+
+    @property
+    def typed_provenance(self) -> MethodProvenance | None:
+        """Compatibility alias for consumers migrating to typed provenance."""
+
+        return self.method_provenance
 
     @property
     def mutation_count(self) -> int:

@@ -5,10 +5,11 @@ from threading import Event
 import numpy as np
 import pytest
 
-from structlens.application.analysis_service import AnalysisService
+from structlens.application.analysis_service import AnalysisService, _target_analysis_from_result
 from structlens.core.errors import AnalysisCancelledError
 from structlens.core.models import (
     AlignmentMode,
+    AnalysisResult,
     AnalysisSettings,
     AtomRecord,
     ProteinChain,
@@ -17,6 +18,7 @@ from structlens.core.models import (
     ResidueNumbering,
     ResidueRecord,
 )
+from structlens.core.provenance import MethodProvenance
 
 
 def _structure(structure_id: str, offset: float = 0.0) -> ProteinStructure:
@@ -98,6 +100,32 @@ def test_analysis_honors_cancellation_before_work_starts() -> None:
             _structure("target"),
             cancel_event=cancel_event,
         )
+
+
+def test_reference_many_conversion_carries_typed_provenance() -> None:
+    provenance = MethodProvenance(
+        "structlens.compare",
+        "0.4.0",
+        {},
+        {},
+        input_hashes={"target": "a" * 64},
+    )
+    result = AnalysisResult(
+        reference_id="ref",
+        target_id="target",
+        correspondences=(),
+        mutations=(),
+        sequence_identity=1.0,
+        sequence_coverage=1.0,
+        alignment_decision="sequence",
+        provenance={"backend": "legacy"},
+        method_provenance=provenance,
+    )
+
+    converted = _target_analysis_from_result(result)
+
+    assert converted.provenance == {"backend": "legacy"}
+    assert converted.method_provenance == provenance
 
 
 def _structure_with_nonstandard(structure_id: str) -> ProteinStructure:

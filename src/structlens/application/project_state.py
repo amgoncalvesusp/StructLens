@@ -28,6 +28,7 @@ from structlens.core.models import (
     StructuralTransform,
     TargetAnalysis,
 )
+from structlens.core.provenance import MethodProvenance
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +285,9 @@ def _analysis_to_dict(result: AnalysisResult) -> dict[str, Any]:
         "excluded_alignment_indices": list(result.excluded_alignment_indices),
         "tm_score": result.tm_score,
         "provenance": dict(result.provenance),
+        "method_provenance": (
+            None if result.method_provenance is None else result.method_provenance.to_json()
+        ),
         "transform": (
             None
             if result.transform is None
@@ -356,6 +360,11 @@ def _analysis_from_dict(payload: dict[str, Any]) -> AnalysisResult:
         excluded_alignment_indices=tuple(payload.get("excluded_alignment_indices", [])),
         tm_score=payload.get("tm_score"),
         provenance=payload.get("provenance", {}),
+        method_provenance=(
+            None
+            if payload.get("method_provenance") is None
+            else MethodProvenance.from_json(payload["method_provenance"])
+        ),
         transform=(
             None
             if payload.get("transform") is None
@@ -418,6 +427,9 @@ def _target_analysis_to_dict(target: TargetAnalysis) -> dict[str, Any]:
             "translation": list(target.transform.translation),
         },
         "provenance": dict(target.provenance),
+        "method_provenance": (
+            None if target.method_provenance is None else target.method_provenance.to_json()
+        ),
     }
 
 
@@ -453,6 +465,11 @@ def _target_analysis_from_dict(payload: dict[str, Any]) -> TargetAnalysis:
             tuple(transform_payload.get("translation", (0.0, 0.0, 0.0))),
         ),
         provenance=payload.get("provenance", {}),
+        method_provenance=(
+            None
+            if payload.get("method_provenance") is None
+            else MethodProvenance.from_json(payload["method_provenance"])
+        ),
     )
 
 

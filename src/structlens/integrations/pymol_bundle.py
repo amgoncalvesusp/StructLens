@@ -26,6 +26,7 @@ from structlens.core.models import (
     ReferenceVsManyAnalysis,
     ResidueId,
 )
+from structlens.core.provenance import MethodProvenance
 
 BUNDLE_FORMAT = "structlens-pymol"
 BUNDLE_SCHEMA_VERSION = "1.0"
@@ -40,6 +41,7 @@ def write_pymol_bundle(
     | Sequence[ProteinStructure | ProteinChain],
     analysis: AnalysisResult | ReferenceVsManyAnalysis,
     provenance: Mapping[str, str] | None = None,
+    method_provenance: MethodProvenance | None = None,
     visualization: Mapping[str, Any] | None = None,
     msa_summary: Mapping[str, Any] | None = None,
     conservation: Mapping[str, Any] | None = None,
@@ -69,6 +71,39 @@ def write_pymol_bundle(
     for target_id, target in target_items:
         structure_payloads[target_id] = _read_structure(target)
     analysis_files = _analysis_payloads(analysis)
+    typed_provenance = method_provenance
+    if typed_provenance is None and isinstance(analysis, AnalysisResult):
+        typed_provenance = analysis.method_provenance
+    if isinstance(analysis, AnalysisResult) and typed_provenance is not None and analysis.method_provenance is not None:
+        if typed_provenance != analysis.method_provenance:
+            raise BundleValidationError("explicit method provenance conflicts with analysis provenance")
+    target_typed_provenance = (
+        {}
+        if not isinstance(analysis, ReferenceVsManyAnalysis)
+        else {
+            target_id: target.method_provenance.to_json()
+            for target_id, target in analysis.targets.items()
+            if target.method_provenance is not None
+        }
+    )
+    if isinstance(analysis, ReferenceVsManyAnalysis) and typed_provenance is not None and target_typed_provenance:
+        raise BundleValidationError("explicit method provenance conflicts with reference-vs-many target provenance")
+    legacy_provenance = dict(provenance or {})
+    if not legacy_provenance and isinstance(analysis, AnalysisResult):
+        legacy_provenance = dict(analysis.provenance)
+    provenance_payload: Mapping[str, Any] = legacy_provenance
+    if typed_provenance is not None or target_typed_provenance:
+        method_payload: dict[str, Any] = {}
+        if typed_provenance is not None:
+            method_payload["provided"] = typed_provenance.to_json()
+        if target_typed_provenance:
+            method_payload["targets"] = target_typed_provenance
+        if not target_typed_provenance and typed_provenance is not None:
+            method_payload = typed_provenance.to_json()
+        provenance_payload = {
+            "legacy": legacy_provenance,
+            "method_provenance": method_payload,
+        }
     manifest: dict[str, Any] = {
         "format": BUNDLE_FORMAT,
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -93,7 +128,7 @@ def write_pymol_bundle(
         structure_entries[entry] = payload
     files: dict[str, bytes] = {
         "manifest.json": _json_bytes(manifest),
-        "provenance.json": _json_bytes(dict(provenance or {})),
+        "provenance.json": _json_bytes(dict(provenance_payload)),
         "analysis/summary.json": _json_bytes(_summary_payload(analysis)),
         "analysis/correspondence.json": _json_bytes(analysis_files["correspondence"]),
         "analysis/mutations.json": _json_bytes(analysis_files["mutations"]),
@@ -152,9 +187,46 @@ def validate_pymol_bundle(path: str | Path) -> dict[str, Any]:
             ):
                 if required not in archive.namelist():
                     raise BundleValidationError(f"Bundle is missing required entry '{required}'")
+            _validate_provenance(archive.read("provenance.json"), target_ids=manifest["target_ids"])
             return manifest
     except zipfile.BadZipFile as error:
         raise BundleValidationError("The .structlens-pymol file is not a valid ZIP archive") from error
+
+
+def _validate_provenance(raw_payload: bytes, *, target_ids: Sequence[str]) -> None:
+    """Validate typed provenance while retaining v0.3 bare-map compatibility."""
+
+    try:
+        payload = json.loads(raw_payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise BundleValidationError("Bundle provenance.json is malformed") from error
+    if not isinstance(payload, dict):
+        raise BundleValidationError("Bundle provenance.json must be an object")
+    if any(not isinstance(target_id, str) or not target_id.strip() for target_id in target_ids):
+        raise BundleValidationError("Bundle manifest target_ids must contain non-empty strings")
+    missing = object()
+    typed = payload.get("method_provenance", missing)
+    if typed is missing:
+        return
+    try:
+        if not isinstance(typed, dict):
+            raise TypeError("method_provenance must be an object")
+        if "targets" in typed:
+            targets = typed["targets"]
+            if not isinstance(targets, dict) or not targets:
+                raise TypeError("method_provenance.targets must be a non-empty object")
+            target_keys = set(targets)
+            if not target_keys.issubset(set(target_ids)):
+                unknown = ", ".join(sorted(str(target_id) for target_id in target_keys - set(target_ids)))
+                raise TypeError(f"method_provenance.targets contains unknown target(s): {unknown}")
+            for target_payload in targets.values():
+                MethodProvenance.from_json(target_payload)
+            if "provided" in typed:
+                MethodProvenance.from_json(typed["provided"])
+        else:
+            MethodProvenance.from_json(typed)
+    except (TypeError, ValueError, KeyError) as error:
+        raise BundleValidationError(f"Invalid typed provenance: {error}") from error
 
 
 def _validate_entries(archive: zipfile.ZipFile) -> None:
@@ -187,6 +259,8 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> None:
     structures = manifest["structures"]
     if not isinstance(target_ids, list) or not isinstance(structures, dict):
         raise BundleValidationError("Manifest target_ids and structures have invalid types")
+    if any(not isinstance(target_id, str) or not target_id.strip() for target_id in target_ids):
+        raise BundleValidationError("Manifest target_ids must contain non-empty strings")
     if len(target_ids) != len(set(target_ids)):
         raise BundleValidationError("Manifest target_ids must be unique")
     if manifest["reference_id"] in target_ids:

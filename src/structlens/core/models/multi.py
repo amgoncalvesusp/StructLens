@@ -15,6 +15,7 @@ from types import MappingProxyType
 
 from structlens.core.metrics.sequence_metrics import SequenceAlignmentMetrics
 from structlens.core.metrics.structural_metrics import StructuralMetrics
+from structlens.core.provenance import MethodProvenance
 
 from .correspondence import ResidueCorrespondence
 from .mutation import MutationEvent
@@ -63,6 +64,7 @@ class TargetAnalysis:
     structural_metrics: StructuralMetrics | None = None
     transform: StructuralTransform = field(default_factory=StructuralTransform)
     provenance: Mapping[str, str] = field(default_factory=dict)
+    method_provenance: MethodProvenance | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "correspondence", tuple(self.correspondence))

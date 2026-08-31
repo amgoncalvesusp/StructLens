@@ -100,3 +100,29 @@
   `tests/unit/core/geometry tests/unit/application` reported 39 passed;
   `python -m ruff check .` passed; `python -m mypy src` reported success across
   109 source files; `git diff --check` was clean.
+- 2026-08-30 Task 2 (typed availability and provenance): RED tests first covered
+  immutable availability states, severity-coded diagnostics, recursive scientific
+  parameter freezing, finite values, required physical units, deterministic
+  artifact identities, and separation of wall-clock audit events. GREEN added
+  `Availability`, `Diagnostic`, `AuditEvent`, and `MethodProvenance`, including
+  canonical JSON, SHA-256 input validation, dimensional length/area/volume/angle
+  checks, and a v0.3 compatibility view. Nanometres are rejected until explicit
+  coordinate conversion exists rather than being silently mislabeled.
+- 2026-08-30 Task 2 integration: typed provenance is stored independently from
+  the legacy flat map and now survives `AnalysisResult`, `TargetAnalysis`,
+  reference-vs-many conversion, project serialization, GUI handoff, and PyMOL
+  bundle export. Bundle validation recomputes artifact IDs, rejects malformed or
+  conflicting typed payloads, and binds target-scoped provenance keys to the
+  manifest target IDs while allowing documented partial coverage.
+- 2026-08-30 Task 2 review gate: two read-only review passes found and closed
+  loss through multi-analysis, dimensionally incompatible units, unverified or
+  conflicting bundle provenance, and target-key substitution. Final Terra and
+  code reviews reported no remaining CRITICAL/HIGH blocker. Fresh gate output:
+  `python -m pytest -q` reported 171 passed; `python -m ruff check .` passed;
+  `python -m mypy src` reported success across 111 source files; and
+  `git diff --check` was clean. Focused branch coverage was 91% for the new
+  availability/diagnostic module and 84% for the new provenance module.
+  `pip-audit` resolved the declared runtime, GUI, and chart dependencies and
+  reported no known vulnerabilities; a filename-only secret-pattern scan found
+  no matches. The global interpreter's unrelated `open-webui`/`onnxruntime`
+  `pip check` mismatch is outside StructLens and is not part of the release env.

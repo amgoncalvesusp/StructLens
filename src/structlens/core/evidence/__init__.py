@@ -16,6 +16,8 @@ from structlens.core.models import ResidueId
 from structlens.core.msa import SequenceResidueRef
 from structlens.core.sites import SiteMetrics
 
+from .status import Availability, Diagnostic, DiagnosticSeverity, Severity
+
 
 class EvidenceAvailability(str, Enum):
     AVAILABLE = "available"
@@ -244,6 +246,10 @@ from .formatting import format_evidence_card  # noqa: E402
 
 __all__ = [
     "EvidenceAvailability",
+    "Availability",
+    "Diagnostic",
+    "DiagnosticSeverity",
+    "Severity",
     "EvidenceCard",
     "EvidenceQuality",
     "InteractionEvidence",

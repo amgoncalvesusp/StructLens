@@ -491,6 +491,7 @@ def _target_analysis_from_result(
         structural_metrics=structural,
         transform=result.transform or StructuralTransform(),
         provenance=result.provenance,
+        method_provenance=result.method_provenance,
     )
 
 

@@ -6,6 +6,7 @@ from structlens.core.models import (
     ReferenceVsManyAnalysis,
     TargetAnalysis,
 )
+from structlens.core.provenance import MethodProvenance
 
 
 def _target(target_id: str) -> TargetAnalysis:
@@ -37,3 +38,24 @@ def test_pairwise_matrix_mirrors_one_stored_value() -> None:
 def test_multi_structure_position_validates_coverage() -> None:
     position = MultiStructurePosition(0, None, {"A": None}, 0.5, 1.2)
     assert position.coverage == 0.5
+
+
+def test_target_analysis_preserves_typed_provenance_after_legacy_fields() -> None:
+    provenance = MethodProvenance(
+        "structlens.compare",
+        "0.4.0",
+        {},
+        {},
+        input_hashes={"target": "a" * 64},
+    )
+    target = TargetAnalysis(
+        "target",
+        (),
+        (),
+        SequenceAlignmentMetrics(1.0, 1.0, 1.0, 1.0, 1.0, 0),
+        provenance={"backend": "legacy"},
+        method_provenance=provenance,
+    )
+
+    assert target.provenance == {"backend": "legacy"}
+    assert target.method_provenance == provenance
