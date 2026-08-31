@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -401,21 +400,15 @@ def test_manual_mapping_runs_through_the_same_canonical_report_path(tmp_path: Pa
     assert report.provenance.parameters["manual_pairs"]
 
 
-def test_structural_analysis_receives_exact_owned_snapshot_files_and_cleans_them_up(tmp_path: Path) -> None:
+def test_structural_analysis_receives_the_selected_normalized_chains(tmp_path: Path) -> None:
     request = _request(tmp_path)
-    captured_paths: dict[str, Path] = {}
 
     class CapturingStructuralAdapter:
         def align(self, reference: object, target: object, settings: object) -> USAlignAlignmentResult:
-            reference_path = Path(reference.source_path)  # type: ignore[attr-defined]
-            target_path = Path(target.source_path)  # type: ignore[attr-defined]
-            captured_paths.update(reference=reference_path, target=target_path)
-            assert reference_path.exists()
-            assert target_path.exists()
-            assert reference_path.read_bytes() == request.reference_snapshot.decompressed_bytes
-            assert target_path.read_bytes() == request.target_snapshot.decompressed_bytes
-            assert hashlib.sha256(reference_path.read_bytes()).hexdigest() == request.reference_snapshot.content_id
-            assert hashlib.sha256(target_path.read_bytes()).hexdigest() == request.target_snapshot.content_id
+            assert reference.source_path is None  # type: ignore[attr-defined]
+            assert target.source_path is None  # type: ignore[attr-defined]
+            assert reference.chain_id == "A"  # type: ignore[attr-defined]
+            assert target.chain_id == "A"  # type: ignore[attr-defined]
             correspondences = tuple(
                 ResidueCorrespondence(
                     alignment_index=index,
@@ -450,10 +443,6 @@ def test_structural_analysis_receives_exact_owned_snapshot_files_and_cleans_them
     )
 
     assert report.availability.analysis is Availability.AVAILABLE
-    assert captured_paths
-    assert all(not path.exists() for path in captured_paths.values())
-    serialized = report.canonical_json_bytes()
-    assert all(str(path).encode() not in serialized for path in captured_paths.values())
 
 
 def test_quality_runner_failure_is_contained_before_downstream_analysis(tmp_path: Path) -> None:

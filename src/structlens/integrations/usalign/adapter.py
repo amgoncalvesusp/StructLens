@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import gzip
 import subprocess
 import tempfile
 from collections.abc import Mapping
-from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,12 +37,8 @@ class USAlignAdapter:
         self,
         *,
         executable: str | Path | None = None,
-        structure_paths: Mapping[str, str | Path],
     ) -> None:
         self._configured_executable = executable
-        self._structure_paths = {
-            structure_id: Path(path) for structure_id, path in structure_paths.items()
-        }
 
     def align(
         self,
@@ -58,9 +52,10 @@ class USAlignAdapter:
         if configured is None and settings.executable not in {"", "USalign", "US-align"}:
             configured = settings.executable
         backend = resolve_backend(configured)
-        with ExitStack() as stack:
-            reference_path = stack.enter_context(_normalized_input(self._source_path(reference)))
-            target_path = stack.enter_context(_normalized_input(self._source_path(target)))
+        with tempfile.TemporaryDirectory(prefix="structlens-usalign-") as temporary_directory:
+            directory = Path(temporary_directory)
+            reference_path = _write_selected_trace(reference, directory, "reference")
+            target_path = _write_selected_trace(target, directory, "target")
             try:
                 completed = subprocess.run(
                     [str(backend.path), str(reference_path), str(target_path)],
@@ -95,17 +90,9 @@ class USAlignAdapter:
                 "backend": "US-align",
                 "binary_source": backend.source,
                 "platform": backend.platform,
-                "command_options": "--input-reference --input-target",
+                "command_options": "selected-model-chain C-alpha traces; reference then target",
             },
         )
-
-    def _source_path(self, chain: ProteinChain) -> Path:
-        try:
-            return self._structure_paths[chain.structure_id]
-        except KeyError as error:
-            raise USAlignExecutionError(
-                f"No source path is registered for structure '{chain.structure_id}'."
-            ) from error
 
     @staticmethod
     def _result_from_parsed(
@@ -168,28 +155,32 @@ def _status_for(
 __all__ = ["USAlignAdapter", "USAlignAlignmentResult"]
 
 
-class _normalized_input:
-    """Exit-stack compatible temporary decompression for backend inputs."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self._directory: tempfile.TemporaryDirectory[str] | None = None
-        self._materialized = path
-
-    def __enter__(self) -> Path:
-        if path_is_compressed(self.path):
-            self._directory = tempfile.TemporaryDirectory(prefix="structlens-usalign-")
-            target_name = self.path.name[:-3]
-            destination = Path(self._directory.name) / target_name
-            with gzip.open(self.path, "rb") as source, destination.open("wb") as target:
-                target.write(source.read())
-            self._materialized = destination
-        return self._materialized
-
-    def __exit__(self, *_: object) -> None:
-        if self._directory is not None:
-            self._directory.cleanup()
+def _write_selected_trace(chain: ProteinChain, directory: Path, role: str) -> Path:
+    path = directory / f"{role}.pdb"
+    path.write_bytes(_selected_ca_pdb(chain))
+    return path
 
 
-def path_is_compressed(path: Path) -> bool:
-    return path.name.lower().endswith((".pdb.gz", ".cif.gz", ".mmcif.gz"))
+def _selected_ca_pdb(chain: ProteinChain) -> bytes:
+    """Serialize only one validated chain's ordered C-alpha trace for US-align."""
+
+    if len(chain.residue_records) > 9_999:
+        raise USAlignExecutionError("Selected chain exceeds the temporary PDB residue limit.")
+    lines: list[str] = []
+    for index, residue in enumerate(chain.residue_records, start=1):
+        alpha_carbons = tuple(atom for atom in residue.atoms if atom.name.upper() == "CA")
+        if len(alpha_carbons) != 1:
+            raise USAlignExecutionError(
+                f"Selected residue {residue.residue_id.auth_seq_id!r} must contain exactly one C-alpha atom."
+            )
+        x, y, z = alpha_carbons[0].coordinate
+        if any(value < -999.999 or value > 9_999.999 for value in (x, y, z)):
+            raise USAlignExecutionError("Selected C-alpha coordinate exceeds the temporary PDB field range.")
+        lines.append(
+            f"ATOM  {index:5d}  CA  {residue.residue_name:>3.3s} A{index:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}           C  \n"
+        )
+    if not lines:
+        raise USAlignExecutionError("Selected chain has no residues for structural alignment.")
+    lines.extend(("TER\n", "END\n"))
+    return "".join(lines).encode("ascii")

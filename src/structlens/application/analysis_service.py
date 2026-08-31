@@ -94,16 +94,10 @@ class AnalysisService:
         ):
             adapter = self._structural_adapter
             if adapter is None:
-                if not reference_chain.source_path or not target_chain.source_path:
-                    raise MappingError("Structure-guided mapping requires source file paths and US-align")
                 from structlens.integrations.usalign.adapter import USAlignAdapter
 
                 adapter = USAlignAdapter(
                     executable=settings.usalign_executable,
-                    structure_paths={
-                        reference_chain.structure_id: reference_chain.source_path,
-                        target_chain.structure_id: target_chain.source_path,
-                    },
                 )
             structural_result = cast(Any, adapter).align(
                 reference_chain,

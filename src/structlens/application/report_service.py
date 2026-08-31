@@ -73,7 +73,6 @@ from structlens.application.report_input import (
 from structlens.application.report_input import (
     single_chain as _single_chain,
 )
-from structlens.application.report_materialization import materialized_analysis_inputs
 from structlens.application.report_provenance import report_provenance as _report_provenance
 from structlens.application.site_service import define_site
 from structlens.core.difference_maps import ResidueDisplacementVector
@@ -188,20 +187,14 @@ class ReportService:
 
         assert reference is not None and target is not None
         try:
-            with materialized_analysis_inputs(
-                reference,
-                target,
-                request.reference_snapshot,
-                request.target_snapshot,
-            ) as (reference_structure, target_structure):
-                result = self._analysis.analyze(
-                    reference_structure,
-                    target_structure,
-                    request.analysis_settings,
-                    reference_chain_id=_single_chain(reference).chain_id,
-                    target_chain_id=_single_chain(target).chain_id,
-                    manual_pairs=_canonical_manual_pairs(request.manual_pairs) or None,
-                )
+            result = self._analysis.analyze(
+                reference.protein_structure,
+                target.protein_structure,
+                request.analysis_settings,
+                reference_chain_id=_single_chain(reference).chain_id,
+                target_chain_id=_single_chain(target).chain_id,
+                manual_pairs=_canonical_manual_pairs(request.manual_pairs) or None,
+            )
         except Exception as error:
             return _analysis_failure_report(
                 request,

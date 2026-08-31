@@ -287,3 +287,21 @@
   `python -m mypy src` reported success across 139 source files;
   `python -m pytest -q` reported 393 passed; and `python -m pip_audit .`
   reported no known vulnerabilities.
+- 2026-08-31 Task 5 final structural-scope correction: a second scientific
+  review showed that passing the entire captured source file to US-align could
+  silently reintroduce unselected models/chains even though parsing and QC used
+  only the user's selection. Structural backend materialization therefore moved
+  into `USAlignAdapter`, where it runs only after STRUCTURE/AUTO has actually
+  chosen structural mapping. The adapter writes a private, ordered C-alpha PDB
+  trace built from exactly the normalized selected `ProteinChain`; it never
+  reads the mutable original path, rejects missing/duplicate C-alpha atoms or
+  PDB field overflow instead of shifting residue indices, and deletes the trace
+  after subprocess completion. A multi-model/two-chain regression replaces the
+  original file after snapshot capture and proves that only model 2, chain B
+  reaches structural analysis. The US-align subprocess regression verifies
+  selected-trace content, safe argument-list invocation, and cleanup.
+- 2026-08-31 post-scope gate: 68 focused report/analysis/US-align/GUI tests
+  passed; the integration suite excluding the newly introduced Task 7 RED tests
+  reported 381 passed; Ruff passed on the touched paths; and mypy succeeded
+  across 138 source files. The only root-collection errors now belong to Task 7
+  RED tests awaiting the blind pocket detector implementation.
