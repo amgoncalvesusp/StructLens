@@ -8,6 +8,7 @@ numbering.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -49,6 +50,25 @@ class StructuralTransform:
             raise ValueError("rotation must be a 3x3 matrix")
         if len(translation) != 3:
             raise ValueError("translation must contain three values")
+        if not all(math.isfinite(value) for row in rotation for value in row) or not all(
+            math.isfinite(value) for value in translation
+        ):
+            raise ValueError("rotation and translation must contain finite values")
+        for index, row in enumerate(rotation):
+            norm = sum(value * value for value in row)
+            if not math.isclose(norm, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+                raise ValueError("rotation must be orthonormal")
+            for other in rotation[index + 1 :]:
+                dot = sum(left * right for left, right in zip(row, other, strict=True))
+                if not math.isclose(dot, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+                    raise ValueError("rotation must be orthonormal")
+        determinant = (
+            rotation[0][0] * (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1])
+            - rotation[0][1] * (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0])
+            + rotation[0][2] * (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0])
+        )
+        if not math.isclose(determinant, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+            raise ValueError("rotation must be a proper rotation with determinant +1")
         object.__setattr__(self, "rotation", rotation)
         object.__setattr__(self, "translation", translation)
 

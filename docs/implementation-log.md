@@ -215,3 +215,22 @@
   and `python -m pip_audit .` reported no known vulnerabilities. `pytest-cov`
   triggered a Windows-local NumPy reimport collection error in this environment,
   so focused branch evidence was collected with `coverage run -p no:cov` instead.
+- 2026-08-31 Task 5 post-gate refactor: split the report orchestration internals
+  into `report_evidence.py`, `report_failures.py`, `report_geometry.py`,
+  `report_input.py`, `report_provenance.py`, and `core/reports/serialization.py`
+  so the report boundary and immutable contracts stay below the file-size limit
+  and remain easier to review. Added regression checks for centroid-displacement
+  missingness without a transform, nonphysical interaction thresholds, rigid-body
+  transform validation, schema/comparison metadata, and a headless GUI
+  `AnalysisReportController` boundary. Fresh focused verification reported
+  `86 passed` for `tests/unit/core/reports`,
+  `tests/unit/application/test_report_service.py`,
+  `tests/unit/application/test_v03_services.py`,
+  `tests/unit/core/test_v03_contracts.py`, and
+  `tests/unit/plugin/test_gui_model.py`; `python -m ruff check` passed on the
+  touched files; `python -m mypy src` reported success across 134 source files;
+  and `git diff --check` remained clean apart from the existing LF→CRLF warnings.
+  A fresh full-suite run now stops at collection in
+  `tests/unit/core/pockets/test_models.py` and `test_radii.py` with
+  `ModuleNotFoundError: No module named 'structlens.core.pockets'`, which is the
+  expected RED starting point for Task 6 rather than a Task 5 regression.

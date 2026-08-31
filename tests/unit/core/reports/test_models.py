@@ -401,6 +401,8 @@ def test_report_serializes_rich_typed_sections_and_compatibility_aliases() -> No
 
     payload = report.to_json()
 
+    assert payload["schema_version"] == "4.0"
+    assert payload["comparison_mode"] == "pairwise"
     assert payload["analysis"]["mutations"][0]["canonical_notation"] == "A10S"
     assert payload["analysis"]["method_provenance"]["method_id"] == "alignment.method"
     assert payload["msa"]["columns"][0]["cells"][1]["character"] == "S"

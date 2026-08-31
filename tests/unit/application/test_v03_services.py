@@ -222,6 +222,7 @@ def test_global_frame_site_rmsd_is_unavailable_without_an_authoritative_transfor
     reference, target, mapping, definition = _site_pair(reference_origins, target_origins)
     metrics = calculate_site_metrics(definition, reference, target, mapping, target_structure_id="tar")
     assert metrics.global_frame_backbone_rmsd_angstrom is None
+    assert metrics.centroid_displacement_angstrom is None
     assert metrics.site_fitted_backbone_rmsd_angstrom is not None
 
 

@@ -17,8 +17,11 @@ without burying the task in a tab strip or card mosaic.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Protocol
 
+from structlens.application.dto import AnalysisReportRequest
 from structlens.core.models import AnalysisResult
+from structlens.core.reports import AnalysisReport
 from structlens.plugin.visualization.renderer import VisualizationState
 
 GUI_SECTIONS = (
@@ -67,6 +70,7 @@ class StructLensPanelModel:
     """Immutable UI state kept separate from the authoritative analysis result."""
 
     status: str = "Choose a reference structure and a target to begin."
+    report: AnalysisReport | None = None
     analysis: AnalysisResult | None = None
     reference_path: str | None = None
     target_path: str | None = None
@@ -80,10 +84,25 @@ class StructLensPanelModel:
         return replace(self, status=status, busy=False, error=None)
 
     def with_analysis(self, analysis: AnalysisResult) -> StructLensPanelModel:
+        """Retain the v0.3 compatibility path for callers not yet report-driven."""
+
         return replace(
             self,
+            report=None,
             analysis=analysis,
             status="Analysis complete.",
+            busy=False,
+            error=None,
+        )
+
+    def with_report(self, report: AnalysisReport) -> StructLensPanelModel:
+        if not isinstance(report, AnalysisReport):
+            raise TypeError("report must be an AnalysisReport")
+        return replace(
+            self,
+            report=report,
+            analysis=None,
+            status="Analysis report complete.",
             busy=False,
             error=None,
         )
@@ -117,6 +136,33 @@ class StructLensPanelModel:
         return replace(self, status=message, busy=False, error=message)
 
 
+class _ReportRunner(Protocol):
+    def analyze(self, request: AnalysisReportRequest) -> AnalysisReport: ...
+
+
+class _ReportView(Protocol):
+    def show_report(self, report: AnalysisReport) -> None: ...
+
+    def show_status(self, status: str) -> None: ...
+
+
+class AnalysisReportController:
+    """Headless GUI boundary that moves one typed report into one view."""
+
+    def __init__(self, service: _ReportRunner, view: _ReportView) -> None:
+        self._service = service
+        self._view = view
+        self.model = StructLensPanelModel()
+
+    def analyze(self, request: AnalysisReportRequest) -> AnalysisReport:
+        self.model = self.model.with_busy("Building canonical analysis report…")
+        report = self._service.analyze(request)
+        self.model = self.model.with_report(report)
+        self._view.show_report(report)
+        self._view.show_status(f"Analysis report complete · {report.report_id}")
+        return report
+
+
 def build_qt_panel(
     parent: object | None = None,
     *,
@@ -141,6 +187,7 @@ __all__ = [
     "GUI_SECTIONS",
     "SCIENTIFIC_SECTIONS",
     "WORKFLOW_HELP",
+    "AnalysisReportController",
     "StructLensPanelModel",
     "build_qt_panel",
 ]

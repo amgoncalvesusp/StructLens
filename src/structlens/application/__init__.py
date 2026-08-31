@@ -13,20 +13,24 @@ from .chart_data import (
 )
 from .chart_export import export_chart_image, export_chart_xlsx
 from .difference_map_service import build_displacement_vectors, calculate_distance_difference
+from .dto import AnalysisReportRequest
 from .interaction_service import InteractionAnalysisService
 from .msa_service import MuscleAlignmentEngine, align_sequences, parse_alignment
 from .mutation_service import MutationService
 from .project_state import ProjectState
 from .quality_service import StructureQualityService, assess_structure_quality
+from .report_service import ReportService
 from .site_service import calculate_site_metrics, define_site
 from .visualization_service import VisualizationService
 
 __all__ = [
     "AnalysisService",
+    "AnalysisReportRequest",
     "ChartDataset",
     "MatrixDataset",
     "MutationService",
     "ProjectState",
+    "ReportService",
     "StructureQualityService",
     "VisualizationService",
     "InteractionAnalysisService",

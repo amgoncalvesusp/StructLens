@@ -5,8 +5,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
+from typing import Protocol, TypeVar
 
-from structlens.core.models import CorrespondenceStatus, ResidueCorrespondence
+from structlens.core.models import CorrespondenceStatus
+
+
+class VisualizableCorrespondence(Protocol):
+    status: CorrespondenceStatus
+    is_key_residue: bool
+    is_outlier: bool
+    ca_displacement_angstrom: float | None
+
+
+_Correspondence = TypeVar("_Correspondence", bound=VisualizableCorrespondence)
 
 
 class HighlightFilter(str, Enum):
@@ -51,9 +62,9 @@ class VisualizationState:
 class VisualizationRenderer:
     def filtered_correspondences(
         self,
-        correspondences: Sequence[ResidueCorrespondence],
+        correspondences: Sequence[_Correspondence],
         state: VisualizationState,
-    ) -> tuple[ResidueCorrespondence, ...]:
+    ) -> tuple[_Correspondence, ...]:
         return tuple(
             item for item in correspondences if _matches(item, state.highlight_filter)
         )
@@ -90,7 +101,7 @@ class VisualizationRenderer:
         return replace(presets[preset])
 
 
-def _matches(item: ResidueCorrespondence, filter_value: HighlightFilter) -> bool:
+def _matches(item: VisualizableCorrespondence, filter_value: HighlightFilter) -> bool:
     if filter_value is HighlightFilter.ALL:
         return True
     if filter_value is HighlightFilter.MUTATIONS:

@@ -18,16 +18,48 @@ from structlens.core.interactions import (
     InteractionChange,
     InteractionDifference,
     InteractionRecord,
+    InteractionThresholds,
     InteractionType,
     ReferenceInteractionKey,
 )
-from structlens.core.models import ResidueId
+from structlens.core.models import ResidueId, StructuralTransform
 from structlens.core.msa import AnalysisSequence, MSAColumn, MSAResidueCell, SequenceResidueRef
 from structlens.core.sites import SiteDefinition, SiteDefinitionMode, SiteMetrics
 
 
 def _residue(number: str = "10", *, structure_id: str = "ref") -> ResidueId:
     return ResidueId(structure_id, "1", "A", number, None, "ALA")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"hbond_distance_angstrom": -1.0},
+        {"metal_distance_angstrom": float("nan")},
+        {"pi_parallel_angle_tolerance_degrees": 181.0},
+        {"pi_t_shape_min_angle_degrees": 121.0, "pi_t_shape_max_angle_degrees": 120.0},
+    ),
+)
+def test_interaction_thresholds_reject_nonphysical_values(kwargs: dict[str, float]) -> None:
+    with pytest.raises(ValueError):
+        InteractionThresholds(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "rotation, translation",
+    (
+        (((1.0, 0.0, 0.0), (0.0, float("nan"), 0.0), (0.0, 0.0, 1.0)), (0.0, 0.0, 0.0)),
+        (((-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), (0.0, 0.0, 0.0)),
+        (((2.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), (0.0, 0.0, 0.0)),
+        (((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), (float("inf"), 0.0, 0.0)),
+    ),
+)
+def test_structural_transform_rejects_nonrigid_or_nonfinite_values(
+    rotation: tuple[tuple[float, float, float], ...],
+    translation: tuple[float, float, float],
+) -> None:
+    with pytest.raises(ValueError):
+        StructuralTransform(rotation, translation)
 
 
 def test_sequence_contract_preserves_source_residue_mapping() -> None:

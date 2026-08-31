@@ -161,7 +161,7 @@ def calculate_site_metrics(
     tar_centroid = _centroid(tar_array)
     centroid_displacement = (
         float(np.linalg.norm(tar_centroid - ref_centroid))
-        if ref_centroid is not None and tar_centroid is not None
+        if target_transform is not None and ref_centroid is not None and tar_centroid is not None
         else None
     )
     rg = float(np.sqrt(np.mean(np.sum((ref_array - ref_centroid) ** 2, axis=1)))) if ref_centroid is not None else None
