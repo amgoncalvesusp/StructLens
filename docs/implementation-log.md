@@ -190,3 +190,28 @@
   exhausted, so the primary agent completed the final diff/security/scientific
   audit locally. Next executable plan item is Task 5, canonical report and v0.3
   orchestration.
+- 2026-08-31 Task 5 (canonical report and v0.3 orchestration): closed the
+  report-layer contracts around immutable snapshots, deterministic report IDs,
+  typed section availability, site-definition persistence, and report-driven
+  visualization compatibility. `AnalysisReport` now excludes local path and
+  basename presentation metadata from canonical scientific identity, so renaming
+  identical sources does not change report bytes or hashes. The orchestration path
+  now preserves content-addressed `site_definitions`, records them in typed
+  provenance, distinguishes unresolved sites as `not_detected` instead of a false
+  zero-valued success, and propagates failed interaction availability into
+  Evidence Card section quality instead of silently marking interactions present.
+  `VisualizationService` now accepts both legacy `AnalysisResult` objects and the
+  canonical `AnalysisReport`, returning an empty selection when a report has no
+  analysis section rather than raising an attribute error.
+- 2026-08-31 Task 5 gate: `python -m pytest -q` reported 350 passed. Focused
+  verification used `python -m coverage run --branch -m pytest -p no:cov
+  tests/unit/core/reports/test_models.py tests/unit/application/test_report_service.py`
+  followed by `python -m coverage report -m --include="src/structlens/core/reports/*,src/structlens/application/report_service.py,src/structlens/application/visualization_service.py"`,
+  yielding 45 passing focused tests and 93% total branch coverage across the new
+  report modules (`report_service.py` 92%, `visualization_service.py` 100%,
+  `core/reports/models.py` 93%). `python -m ruff check` passed on the touched
+  report files and tests; `python -m mypy src` reported success across 128 source
+  files; `git diff --check` was clean apart from Git's existing LF→CRLF warnings;
+  and `python -m pip_audit .` reported no known vulnerabilities. `pytest-cov`
+  triggered a Windows-local NumPy reimport collection error in this environment,
+  so focused branch evidence was collected with `coverage run -p no:cov` instead.
