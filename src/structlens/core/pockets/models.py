@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass, field
 
 from structlens.core.evidence import Availability, Diagnostic
@@ -16,6 +17,7 @@ from structlens.core.models import ResidueId
 
 JSONScalar = str | int | float | bool | None
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _canonical_bytes(payload: dict[str, JSONValue]) -> bytes:
@@ -266,6 +268,8 @@ class AlphaSphere:
 @dataclass(frozen=True, slots=True)
 class PocketCandidate:
     alpha_spheres: tuple[AlphaSphere, ...]
+    source_content_id: str | None = None
+    selection_id: str | None = None
     centroid_xyz: tuple[float, float, float] = field(init=False)
     lining_residues: tuple[ResidueId, ...] = field(init=False)
     touching_atom_ids: tuple[str, ...] = field(init=False)
@@ -290,6 +294,15 @@ class PocketCandidate:
         object.__setattr__(self, "lining_residues", residues)
         atom_ids = tuple(sorted({atom_id for sphere in spheres for atom_id in sphere.touching_atom_ids}))
         object.__setattr__(self, "touching_atom_ids", atom_ids)
+        if (self.source_content_id is None) != (self.selection_id is None):
+            raise ValueError("source_content_id and selection_id must be provided together")
+        for name in ("source_content_id", "selection_id"):
+            value = getattr(self, name)
+            if value is not None:
+                token = str(value).strip().lower()
+                if _SHA256_RE.fullmatch(token) is None:
+                    raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+                object.__setattr__(self, name, token)
         payload = self._payload(include_id=False)
         object.__setattr__(self, "candidate_id", hashlib.sha256(_canonical_bytes(payload)).hexdigest())
 
@@ -302,6 +315,10 @@ class PocketCandidate:
         }
         if include_id:
             payload["candidate_id"] = self.candidate_id
+            payload["lineage"] = {
+                "source_content_id": self.source_content_id,
+                "selection_id": self.selection_id,
+            }
         return payload
 
     def to_json(self) -> dict[str, JSONValue]:

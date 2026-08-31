@@ -14,8 +14,18 @@ from structlens.core.sites import SiteDefinition, SiteDefinitionMode, SiteMetric
 BACKBONE_ATOMS = ("N", "CA", "C", "O")
 
 
-def _coords(residue: ResidueRecord, names: set[str] | None = None) -> np.ndarray:
-    atoms = [atom.coordinate for atom in residue.atoms if names is None or atom.name.upper() in names]
+def _coords(
+    residue: ResidueRecord,
+    names: set[str] | None = None,
+    *,
+    heavy_only: bool = False,
+) -> np.ndarray:
+    atoms = [
+        atom.coordinate
+        for atom in residue.atoms
+        if (names is None or atom.name.upper() in names)
+        and (not heavy_only or atom.element.strip().upper() not in {"H", "D", "T"})
+    ]
     return np.asarray(atoms, dtype=np.float64)
 
 
@@ -49,16 +59,25 @@ def define_site(
         center = by_id.get(definition.center_residue)
         if center is None:
             return ()
-        center_atoms = _coords(center)
+        center_atoms = _coords(center, heavy_only=True)
     else:
         atoms = tuple((ligand_atoms or {}).get(definition.ligand_id or "", ()))
         if not atoms or definition.radius_angstrom is None:
             return ()
-        center_atoms = np.asarray([atom.coordinate for atom in atoms], dtype=np.float64)
+        center_atoms = np.asarray(
+            [
+                atom.coordinate
+                for atom in atoms
+                if atom.element.strip().upper() not in {"H", "D", "T"}
+            ],
+            dtype=np.float64,
+        )
+        if not len(center_atoms):
+            return ()
     radius = float(definition.radius_angstrom or 0.0)
     selected: list[ResidueRecord] = []
     for residue in reference_residues:
-        coordinates = _coords(residue)
+        coordinates = _coords(residue, heavy_only=True)
         if (
             len(coordinates)
             and np.min(np.linalg.norm(coordinates[:, None, :] - center_atoms[None, :, :], axis=2)) <= radius

@@ -83,6 +83,10 @@ def _settings(
     policy: str = "protein_only",
     max_voxels: int = 100_000,
     chunk_size: int = 256,
+    max_spheres: int = 10_000,
+    max_exclusions: int = 50_000,
+    max_sphere_checks: int = 100_000_000,
+    max_neighbor_checks: int = 5_000_000,
 ) -> PocketVolumeSettings:
     return PocketVolumeSettings(
         coarse_grid_spacing_angstrom=coarse,
@@ -91,6 +95,10 @@ def _settings(
         component_exclusion_policy=policy,
         max_voxel_count=max_voxels,
         voxel_chunk_size=chunk_size,
+        max_sphere_count=max_spheres,
+        max_exclusion_atom_count=max_exclusions,
+        max_sphere_voxel_checks=max_sphere_checks,
+        max_exclusion_neighbor_checks=max_neighbor_checks,
     )
 
 
@@ -294,6 +302,43 @@ def test_voxel_cap_returns_typed_numerical_failure_with_remediation() -> None:
     assert "voxel" in diagnostic.message.lower()
 
 
+@pytest.mark.parametrize(
+    ("settings", "protein_atoms"),
+    (
+        (_settings(max_spheres=1), ()),
+        (
+            _settings(max_exclusions=1),
+            (
+                _atom((0.0, 0.0, 0.0), source_atom_id="h-1"),
+                _atom((0.5, 0.0, 0.0), source_atom_id="h-2"),
+            ),
+        ),
+        (_settings(max_sphere_checks=1), ()),
+        (
+            _settings(max_neighbor_checks=1),
+            (
+                _atom((0.0, 0.0, 0.0), source_atom_id="h-1"),
+                _atom((0.5, 0.0, 0.0), source_atom_id="h-2"),
+            ),
+        ),
+    ),
+)
+def test_volume_work_budgets_fail_closed_before_unbounded_work(
+    settings: PocketVolumeSettings,
+    protein_atoms: tuple[AtomRecord, ...],
+) -> None:
+    candidate = _candidate(
+        _sphere((0.0, 0.0, 0.0), 2.0, 1),
+        _sphere((0.5, 0.0, 0.0), 1.0, 2),
+    )
+
+    result = _measure(candidate, settings=settings, protein_atoms=protein_atoms)
+
+    assert result.availability is Availability.NUMERICAL_FAILURE
+    assert result.coarse_volume_angstrom3 is None
+    assert any(item.code == "pocket.volume.resource_limit" for item in result.diagnostics)
+
+
 def test_chunked_and_single_chunk_measurements_are_identical() -> None:
     candidate = _candidate(
         _sphere((-0.5, 0.0, 0.0), 1.0, 1),
@@ -352,6 +397,57 @@ def test_rotation_bound_is_the_declared_half_diagonal_boundary_shell_bound() -> 
     )
 
     assert result.rotation_error_bound_angstrom3 == pytest.approx(2.0 * shell)
+
+
+def test_rotation_bound_includes_active_atom_exclusion_surfaces() -> None:
+    candidate = _candidate(_sphere((0.0, 0.0, 0.0), 2.0, 1))
+    settings = _settings(coarse=0.5, fine=0.5)
+    geometric = _measure(candidate, settings=settings)
+    excluded = _measure(
+        candidate,
+        settings=settings,
+        protein_atoms=(_atom((0.0, 0.0, 0.0), element="H", source_atom_id="protein-h"),),
+    )
+    half_diagonal = math.sqrt(3.0) * settings.fine_grid_spacing_angstrom / 2.0
+    hydrogen_radius = 1.2
+    exclusion_shell = (4.0 / 3.0) * math.pi * (
+        (hydrogen_radius + half_diagonal) ** 3
+        - (hydrogen_radius - half_diagonal) ** 3
+    )
+
+    assert excluded.rotation_error_bound_angstrom3 == pytest.approx(
+        geometric.rotation_error_bound_angstrom3 + 2.0 * exclusion_shell
+    )
+
+
+def test_unknown_exclusion_radius_fails_closed_with_atom_identity() -> None:
+    candidate = _candidate(_sphere((0.0, 0.0, 0.0), 2.0, 1))
+    unknown = _atom((0.0, 0.0, 0.0), element="XX", source_atom_id="mystery-atom")
+
+    result = _measure(candidate, protein_atoms=(unknown,))
+
+    assert result.availability is Availability.INVALID_INPUT
+    assert result.coarse_voxel_count is None
+    assert result.fine_volume_angstrom3 is None
+    diagnostic = next(item for item in result.diagnostics if item.code == "pocket.volume.unknown_radius")
+    assert diagnostic.source_id == "protein"
+    assert diagnostic.atom_id == "mystery-atom"
+    assert diagnostic.severity.value == "error"
+    assert diagnostic.remediation
+
+    component = _component("metal-site", ComponentKind.ION, unknown)
+    component_result = _measure(
+        candidate,
+        settings=_settings(policy="unoccupied"),
+        components=(component,),
+    )
+    component_diagnostic = next(
+        item for item in component_result.diagnostics if item.code == "pocket.volume.unknown_radius"
+    )
+
+    assert component_result.availability is Availability.INVALID_INPUT
+    assert component_diagnostic.source_id == "metal-site"
+    assert component_diagnostic.atom_id == "mystery-atom"
 
 
 @pytest.mark.parametrize(
@@ -489,6 +585,17 @@ def test_volume_result_coerces_string_availability_and_exposes_result_aliases() 
     assert result.absolute_sensitivity_angstrom3 == pytest.approx(7.0)
     assert result.relative_sensitivity == pytest.approx(0.875)
     assert result.to_json()["candidate_id"] == "candidate-1"
+
+
+def test_volume_result_rejects_incoherent_availability_payloads() -> None:
+    with pytest.raises(ValueError, match="available pocket volume"):
+        PocketVolumeResult(availability=Availability.AVAILABLE)
+
+    with pytest.raises(ValueError, match="unavailable pocket volume"):
+        PocketVolumeResult(
+            availability=Availability.INVALID_INPUT,
+            coarse_volume_angstrom3=1.0,
+        )
 
 
 @pytest.mark.parametrize(

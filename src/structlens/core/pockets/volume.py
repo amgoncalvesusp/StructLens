@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 from scipy.spatial import cKDTree  # type: ignore[import-untyped]
 
-from structlens.core.evidence import Availability, Diagnostic
+from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
 from structlens.core.models import AtomRecord, ComponentKind, StructureComponent
 
 from .models import PocketCandidate
@@ -46,6 +46,11 @@ class _GridMeasurement:
     count: int
     shape: tuple[int, int, int]
     envelope_volume_angstrom3: float
+    exclusion_neighbor_checks: int = 0
+
+
+class _VolumeResourceLimit(RuntimeError):
+    """Internal bounded-work stop converted to a typed public result."""
 
 
 def sensitivity_from_volumes(
@@ -100,29 +105,77 @@ def measure_pocket_volume(
         raise TypeError("candidate must be PocketCandidate or None")
 
     spheres = tuple(sorted(candidate.alpha_spheres, key=lambda item: item.sphere_id))
+    diagnostics: list[Diagnostic] = []
+    if len(spheres) > run_settings.max_sphere_count:
+        diagnostics.append(
+            _resource_diagnostic(
+                "The pocket candidate exceeds the configured alpha-sphere limit.",
+                "Use a bounded detected candidate or raise max_sphere_count deliberately.",
+            )
+        )
+        return _resource_result_without_grid(candidate, run_settings, diagnostics)
     lower, upper = _bounds(spheres, run_settings.boundary_margin_angstrom)
     origin = (float(lower[0]), float(lower[1]), float(lower[2]))
-    diagnostics: list[Diagnostic] = []
+    selected_components = tuple(
+        component
+        for component in components
+        if component.kind in {ComponentKind.LIGAND, ComponentKind.ION, ComponentKind.OTHER}
+        and component.metadata.get("selected_for_analysis") is True
+    )
+    exclusion_input_count = len(protein)
+    if run_settings.component_exclusion_policy == "unoccupied":
+        exclusion_input_count += sum(len(component.atoms) for component in selected_components)
+    if exclusion_input_count > run_settings.max_exclusion_atom_count:
+        diagnostics.append(
+            _resource_diagnostic(
+                "The selected structure exceeds the configured exclusion-atom limit.",
+                "Narrow the selected structure or raise max_exclusion_atom_count deliberately.",
+            )
+        )
+        return _resource_result_without_grid(candidate, run_settings, diagnostics)
     exclusion_atoms = list(_known_exclusion_atoms(protein, diagnostics, scope="protein"))
     if run_settings.component_exclusion_policy == "unoccupied":
-        for component in components:
-            if component.kind not in {ComponentKind.LIGAND, ComponentKind.ION, ComponentKind.OTHER}:
-                continue
-            if component.metadata.get("selected_for_analysis") is not True:
-                continue
-            exclusion_atoms.extend(_known_exclusion_atoms(component.atoms, diagnostics, scope="component"))
-    tree, radii = _build_exclusion_index(exclusion_atoms)
+        for component in selected_components:
+            exclusion_atoms.extend(
+                _known_exclusion_atoms(
+                    component.atoms,
+                    diagnostics,
+                    scope=component.component_id,
+                )
+            )
 
     coarse_shape = _shape_for_bounds(lower, upper, run_settings.coarse_grid_spacing_angstrom)
     fine_shape = _shape_for_bounds(lower, upper, run_settings.fine_grid_spacing_angstrom)
+    if any(item.code == "pocket.volume.unknown_radius" for item in diagnostics):
+        return _result(
+            candidate,
+            run_settings,
+            Availability.INVALID_INPUT,
+            origin,
+            coarse_shape,
+            fine_shape,
+            diagnostics,
+            None,
+            None,
+            None,
+            None,
+            None,
+            (),
+        )
+    active_exclusions = _active_exclusion_atoms(exclusion_atoms, lower, upper)
+    tree, radii = _build_exclusion_index(active_exclusions)
     total_coarse = math.prod(coarse_shape)
     total_fine = math.prod(fine_shape)
-    if total_coarse > run_settings.max_voxel_count or total_fine > run_settings.max_voxel_count:
+    sphere_voxel_checks = (total_coarse + total_fine) * len(spheres)
+    if (
+        total_coarse > run_settings.max_voxel_count
+        or total_fine > run_settings.max_voxel_count
+        or sphere_voxel_checks > run_settings.max_sphere_voxel_checks
+    ):
         diagnostics.append(
-            _diagnostic(
-                "pocket.volume.resource_limit",
-                "The requested pocket volume grid exceeds the configured voxel limit.",
-                remediation="Increase grid spacing, reduce the boundary margin, or raise max_voxel_count deliberately.",
+            _resource_diagnostic(
+                "The requested pocket volume grid exceeds a configured voxel/work limit.",
+                "Increase grid spacing, reduce the boundary margin, or raise the relevant work limit deliberately.",
             )
         )
         return _result(
@@ -138,26 +191,52 @@ def measure_pocket_volume(
             None,
             None,
             None,
+            active_exclusions,
         )
 
-    coarse = _measure_grid(
-        origin,
-        coarse_shape,
-        run_settings.coarse_grid_spacing_angstrom,
-        spheres,
-        tree,
-        radii,
-        run_settings.voxel_chunk_size,
-    )
-    fine = _measure_grid(
-        origin,
-        fine_shape,
-        run_settings.fine_grid_spacing_angstrom,
-        spheres,
-        tree,
-        radii,
-        run_settings.voxel_chunk_size,
-    )
+    try:
+        coarse = _measure_grid(
+            origin,
+            coarse_shape,
+            run_settings.coarse_grid_spacing_angstrom,
+            spheres,
+            tree,
+            radii,
+            run_settings.voxel_chunk_size,
+            run_settings.max_exclusion_neighbor_checks,
+        )
+        fine = _measure_grid(
+            origin,
+            fine_shape,
+            run_settings.fine_grid_spacing_angstrom,
+            spheres,
+            tree,
+            radii,
+            run_settings.voxel_chunk_size,
+            run_settings.max_exclusion_neighbor_checks - coarse.exclusion_neighbor_checks,
+        )
+    except _VolumeResourceLimit:
+        diagnostics.append(
+            _resource_diagnostic(
+                "Pocket volume exclusion queries exceeded the configured neighbor-check limit.",
+                "Narrow the structure or raise max_exclusion_neighbor_checks deliberately.",
+            )
+        )
+        return _result(
+            candidate,
+            run_settings,
+            Availability.NUMERICAL_FAILURE,
+            origin,
+            coarse_shape,
+            fine_shape,
+            diagnostics,
+            None,
+            None,
+            None,
+            None,
+            None,
+            active_exclusions,
+        )
     coarse_volume = coarse.count * run_settings.coarse_grid_spacing_angstrom**3
     fine_volume = fine.count * run_settings.fine_grid_spacing_angstrom**3
     sensitivity = sensitivity_from_volumes(coarse_volume, fine_volume)
@@ -174,6 +253,7 @@ def measure_pocket_volume(
         coarse_volume,
         fine_volume,
         sensitivity,
+        active_exclusions,
     )
     return result
 
@@ -199,20 +279,42 @@ def _known_exclusion_atoms(
     scope: str,
 ) -> tuple[_ExclusionAtom, ...]:
     known: list[_ExclusionAtom] = []
-    for atom in atoms:
+    for index, atom in enumerate(atoms):
         radius = vdw_radius_angstrom(atom.element)
         if radius is None:
+            atom_id = atom.source_atom_id or f"{scope}:{atom.name}:{index}"
             diagnostics.append(
                 _diagnostic(
                     "pocket.volume.unknown_radius",
-                    f"No validated pocket radius is available for element {atom.element!r}; atom was excluded.",
-                    remediation="Review the element annotation or exclude the atom from volume exclusions.",
+                    f"No validated pocket radius is available for element {atom.element!r}; volume was not measured.",
+                    severity=DiagnosticSeverity.ERROR,
+                    source_id=scope,
+                    atom_id=atom_id,
+                    remediation="Correct the element annotation or provide a validated radius before measuring volume.",
                 )
             )
             continue
         coordinate = (float(atom.coordinate[0]), float(atom.coordinate[1]), float(atom.coordinate[2]))
         known.append(_ExclusionAtom(coordinate, radius))
     return tuple(known)
+
+
+def _active_exclusion_atoms(
+    atoms: Sequence[_ExclusionAtom],
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> tuple[_ExclusionAtom, ...]:
+    """Keep atom spheres whose bounds can intersect the pocket envelope."""
+
+    return tuple(
+        atom
+        for atom in atoms
+        if all(
+            coordinate + atom.radius_angstrom >= float(low)
+            and coordinate - atom.radius_angstrom <= float(high)
+            for coordinate, low, high in zip(atom.coordinate, lower, upper, strict=True)
+        )
+    )
 
 
 def _build_exclusion_index(
@@ -256,12 +358,14 @@ def _measure_grid(
     tree: cKDTree | None,
     exclusion_atoms: Sequence[_ExclusionAtom],
     chunk_size: int,
+    max_exclusion_neighbor_checks: int,
 ) -> _GridMeasurement:
     total = math.prod(shape)
     count = 0
     nx, ny, _ = shape
     plane = nx * ny
     sphere_data = tuple((np.asarray(sphere.center_xyz, dtype=np.float64), sphere.radius_angstrom**2) for sphere in spheres)
+    exclusion_neighbor_checks = 0
     for start in range(0, total, chunk_size):
         stop = min(total, start + chunk_size)
         linear = np.arange(start, stop, dtype=np.int64)
@@ -281,18 +385,55 @@ def _measure_grid(
             inside |= np.einsum("ij,ij->i", delta, delta) <= radius_squared
         if tree is not None and np.any(inside):
             inside_indices = np.flatnonzero(inside)
-            nearby = tree.query_ball_point(points[inside_indices], r=max(atom.radius_angstrom for atom in exclusion_atoms) + 1.0e-12)
-            for local_index, candidates in zip(inside_indices, nearby, strict=True):
-                point = points[int(local_index)]
-                for atom_index in candidates:
-                    atom = exclusion_atoms[int(atom_index)]
-                    delta = point - np.asarray(atom.coordinate, dtype=np.float64)
-                    if float(np.dot(delta, delta)) <= atom.radius_angstrom**2:
-                        inside[int(local_index)] = False
-                        break
+            query_radius = max(atom.radius_angstrom for atom in exclusion_atoms) + 1.0e-12
+            for batch_start in range(0, len(inside_indices), 256):
+                batch_indices = inside_indices[batch_start : batch_start + 256]
+                batch_points = points[batch_indices]
+                neighbor_counts = tree.query_ball_point(
+                    batch_points,
+                    r=query_radius,
+                    return_length=True,
+                )
+                batch_checks = int(np.sum(neighbor_counts))
+                if exclusion_neighbor_checks + batch_checks > max_exclusion_neighbor_checks:
+                    raise _VolumeResourceLimit
+                exclusion_neighbor_checks += batch_checks
+                nearby = tree.query_ball_point(batch_points, r=query_radius)
+                for local_index, candidates in zip(batch_indices, nearby, strict=True):
+                    point = points[int(local_index)]
+                    for atom_index in candidates:
+                        atom = exclusion_atoms[int(atom_index)]
+                        delta = point - np.asarray(atom.coordinate, dtype=np.float64)
+                        if float(np.dot(delta, delta)) <= atom.radius_angstrom**2:
+                            inside[int(local_index)] = False
+                            break
         count += int(np.count_nonzero(inside))
     envelope_volume = float(total) * spacing**3
-    return _GridMeasurement(count, shape, envelope_volume)
+    return _GridMeasurement(count, shape, envelope_volume, exclusion_neighbor_checks)
+
+
+def _resource_diagnostic(message: str, remediation: str) -> Diagnostic:
+    return _diagnostic(
+        "pocket.volume.resource_limit",
+        message,
+        severity=DiagnosticSeverity.ERROR,
+        remediation=remediation,
+    )
+
+
+def _resource_result_without_grid(
+    candidate: PocketCandidate,
+    settings: PocketVolumeSettings,
+    diagnostics: Sequence[Diagnostic],
+) -> PocketVolumeResult:
+    return PocketVolumeResult(
+        availability=Availability.NUMERICAL_FAILURE,
+        units=_VOLUME_UNITS,
+        provenance_parameters=_provenance_parameters(candidate, settings),
+        diagnostics=tuple(diagnostics),
+        candidate_id=candidate.candidate_id,
+        settings=settings,
+    )
 
 
 def _provenance_parameters(
@@ -326,8 +467,11 @@ def _result(
     coarse_volume: float | None,
     fine_volume: float | None,
     sensitivity: PocketVolumeSensitivity | None,
+    exclusion_atoms: Sequence[_ExclusionAtom],
 ) -> PocketVolumeResult:
     parameters = _provenance_parameters(candidate, settings)
+    parameters["active_exclusion_atom_count"] = len(exclusion_atoms)
+    parameters["rotation_error_bound"] = "two_times_half_voxel_diagonal_boundary_shells"
     signature = (
         settings.radii_version,
         candidate.candidate_id,
@@ -340,10 +484,12 @@ def _result(
         _GRID_SAMPLING,
     )
     half_diagonal = math.sqrt(3.0) * settings.fine_grid_spacing_angstrom / 2.0
+    boundary_radii = tuple(sphere.radius_angstrom for sphere in candidate.alpha_spheres) + tuple(
+        atom.radius_angstrom for atom in exclusion_atoms
+    )
     error_bound = 2.0 * (4.0 / 3.0) * math.pi * sum(
-        (sphere.radius_angstrom + half_diagonal) ** 3
-        - max(0.0, sphere.radius_angstrom - half_diagonal) ** 3
-        for sphere in candidate.alpha_spheres
+        (radius + half_diagonal) ** 3 - max(0.0, radius - half_diagonal) ** 3
+        for radius in boundary_radii
     )
     return PocketVolumeResult(
         availability=availability,
@@ -400,19 +546,8 @@ def compare_pocket_volumes(
             units=_VOLUME_UNITS,
             compatibility_signature=reference.compatibility_signature,
         )
-    if reference.fine_volume_angstrom3 is None or target.fine_volume_angstrom3 is None:
-        return PocketVolumeComparison(
-            availability=Availability.NUMERICAL_FAILURE,
-            diagnostics=(
-                _diagnostic(
-                    "pocket.volume.missing_measurement",
-                    "A compatible volume result did not contain a fine-grid volume.",
-                    remediation="Rerun the volume measurement before comparing candidates.",
-                ),
-            ),
-            units=_VOLUME_UNITS,
-            compatibility_signature=reference.compatibility_signature,
-        )
+    assert reference.fine_volume_angstrom3 is not None
+    assert target.fine_volume_angstrom3 is not None
     delta = target.fine_volume_angstrom3 - reference.fine_volume_angstrom3
     relative = delta / reference.fine_volume_angstrom3 if reference.fine_volume_angstrom3 > 0.0 else None
     return PocketVolumeComparison(

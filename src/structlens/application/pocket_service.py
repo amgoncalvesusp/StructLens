@@ -18,21 +18,30 @@ from typing import cast
 
 from structlens.core.errors import AnalysisCancelledError
 from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
-from structlens.core.models import AtomRecord, ComponentKind, ProteinChain, ResidueId, StructureComponent
+from structlens.core.models import AtomRecord, ComponentKind, ProteinChain, ResidueId, ResidueRecord, StructureComponent
 from structlens.core.parsing import AltlocPolicy, ParsedStructure
 from structlens.core.pockets import (
+    POCKET_LIGAND_RULES_VERSION,
     POCKET_RADII_VERSION,
+    FocusedPocketSelection,
     PocketCandidate,
     PocketDetectionSettings,
     PocketVolumeResult,
     PocketVolumeSettings,
+    eligible_pocket_ligands,
+    measure_ligand_support,
     measure_pocket_volume,
+    select_candidate_by_ligand_support,
+    select_candidate_by_seed_residues,
     vdw_radius_angstrom,
 )
 from structlens.core.pockets.clustering import cluster_alpha_spheres
 from structlens.core.pockets.delaunay import PocketAtom, detect_alpha_spheres
 from structlens.core.pockets.ranking import rank_pocket_candidates
 from structlens.core.provenance import FrozenJSON, MethodProvenance
+from structlens.core.sites import SiteDefinition
+
+from .site_service import define_site
 
 ProgressCallback = Callable[[str], None]
 
@@ -47,6 +56,9 @@ _NUMERICAL_FAILURE_CODES = frozenset(
 )
 _VOLUME_METHOD_ID = "structlens.pocket.volume"
 _VOLUME_METHOD_VERSION = "0.4.0"
+_VOLUME_HYDROGEN_POLICY = "deposited_heavy_atoms_only"
+_FOCUS_METHOD_ID = "structlens.pocket.focus"
+_FOCUS_METHOD_VERSION = "0.4.0"
 _VOLUME_COMPONENT_KINDS = frozenset(
     {ComponentKind.LIGAND, ComponentKind.ION, ComponentKind.OTHER}
 )
@@ -202,6 +214,14 @@ class StructurePocketService:
             tuple(cluster_result.candidates),
             maximum_candidates=self._settings.maximum_candidates,
         )
+        ranked = tuple(
+            replace(
+                candidate,
+                source_content_id=parsed.selection.content_id,
+                selection_id=parsed.selection.selection_id,
+            )
+            for candidate in ranked
+        )
         counts["candidates"] = len(ranked)
         if not ranked:
             return PocketDetectionReport(
@@ -237,6 +257,8 @@ class StructurePocketService:
         run_settings = settings if settings is not None else PocketVolumeSettings()
         if not isinstance(run_settings, PocketVolumeSettings):
             raise TypeError("settings must be PocketVolumeSettings or None")
+        if candidate is not None:
+            _validate_candidate_lineage(candidate, parsed)
         protein_atoms = _selected_volume_polymer_atoms(parsed)
         retained_components = (
             _selected_volume_components(parsed)
@@ -256,7 +278,85 @@ class StructurePocketService:
             polymer_atom_count=len(protein_atoms),
             component_ids=tuple(component.component_id for component in retained_components),
         )
-        return replace(measured, provenance=provenance)
+        comparison_scope = (
+            ("altloc_policy", parsed.selection.altloc_policy.value),
+            ("hydrogen_policy", _VOLUME_HYDROGEN_POLICY),
+        )
+        result_parameters = {
+            **dict(measured.provenance_parameters),
+            "altloc_policy": parsed.selection.altloc_policy.value,
+            "hydrogen_policy": _VOLUME_HYDROGEN_POLICY,
+        }
+        return replace(
+            measured,
+            provenance=provenance,
+            provenance_parameters=result_parameters,
+            compatibility_signature=measured.compatibility_signature + comparison_scope,
+        )
+
+    def select_focused_candidate(
+        self,
+        parsed: ParsedStructure,
+        candidates: Sequence[PocketCandidate],
+        definition: SiteDefinition,
+    ) -> FocusedPocketSelection:
+        """Select one detected pocket candidate for a focused site definition."""
+
+        if not isinstance(parsed, ParsedStructure):
+            raise TypeError("parsed must be a ParsedStructure")
+        if not isinstance(definition, SiteDefinition):
+            raise TypeError("definition must be a SiteDefinition")
+        candidate_values = tuple(candidates)
+        if any(not isinstance(item, PocketCandidate) for item in candidate_values):
+            raise TypeError("candidates must contain PocketCandidate values")
+        for candidate in candidate_values:
+            _validate_candidate_lineage(candidate, parsed)
+        reference_residues = _selected_site_residue_records(parsed)
+        retained_components = _selected_volume_components(parsed)
+        ligands = eligible_pocket_ligands(
+            retained_components,
+            altloc_policy=parsed.selection.altloc_policy.value,
+        )
+        ligand_atoms = {component.component_id: component.atoms for component in ligands}
+        selected_residues = define_site(definition, reference_residues, ligand_atoms=ligand_atoms)
+        if definition.is_ligand_site:
+            ligand = next(
+                (
+                    component
+                    for component in ligands
+                    if component.component_id == (definition.ligand_id or "")
+                ),
+                None,
+            )
+            if ligand is None:
+                focused = select_candidate_by_ligand_support((), ligand_id=definition.ligand_id or "")
+            else:
+                supports = tuple(
+                    (
+                        candidate_item,
+                        measure_ligand_support(
+                            candidate_item,
+                            ligand,
+                            ligand_contact_residues=tuple(record.residue_id for record in selected_residues),
+                            altloc_policy=parsed.selection.altloc_policy.value,
+                        ),
+                    )
+                    for candidate_item in candidate_values
+                )
+                focused = select_candidate_by_ligand_support(supports, ligand_id=ligand.component_id)
+        else:
+            focused = select_candidate_by_seed_residues(
+                candidate_values,
+                tuple(record.residue_id for record in selected_residues),
+                selection_mode=definition.mode.value,
+            )
+        provenance = _build_focus_provenance(
+            parsed,
+            candidate_values,
+            definition,
+            focused,
+        )
+        return replace(focused, provenance=provenance)
 
 
 def detect_blind_pockets(
@@ -298,6 +398,31 @@ def _selected_volume_polymer_atoms(parsed: ParsedStructure) -> tuple[AtomRecord,
     )
 
 
+def _validate_candidate_lineage(candidate: PocketCandidate, parsed: ParsedStructure) -> None:
+    """Reject candidates not produced for the exact parsed selection."""
+
+    if not isinstance(candidate, PocketCandidate):
+        raise TypeError("candidate must be PocketCandidate")
+    if (
+        candidate.source_content_id != parsed.selection.content_id
+        or candidate.selection_id != parsed.selection.selection_id
+    ):
+        raise ValueError(
+            "candidate lineage does not match the parsed source content and selection"
+        )
+
+
+def _selected_site_residue_records(parsed: ParsedStructure) -> tuple[ResidueRecord, ...]:
+    """Return selected residue records for focused pocket site resolution."""
+
+    return tuple(
+        record
+        for chain in parsed.protein_structure.chains
+        if _chain_is_selected(chain, parsed)
+        for record in chain.residue_records
+    )
+
+
 def _selected_volume_components(parsed: ParsedStructure) -> tuple[StructureComponent, ...]:
     """Return selected retained ligand/ion/other components in scope."""
 
@@ -311,7 +436,11 @@ def _selected_volume_components(parsed: ParsedStructure) -> tuple[StructureCompo
     return tuple(
         replace(
             component,
-            atoms=_primary_component_atoms(component.atoms, parsed.selection.altloc_policy),
+            atoms=tuple(
+                atom
+                for atom in _primary_component_atoms(component.atoms, parsed.selection.altloc_policy)
+                if atom.element.strip().upper() not in _HYDROGEN_ELEMENTS
+            ),
         )
         for component in sorted(components, key=lambda component: component.component_id)
     )
@@ -550,9 +679,19 @@ def _build_volume_provenance(
         "assembly_scope": selection.assembly_scope.value,
         "atom_scope": "selected_primary_polymer_heavy_atoms",
         "component_scope": "selected_retained_ligand_ion_other_components",
+        "component_rules_version": POCKET_LIGAND_RULES_VERSION,
+        "hydrogen_policy": _VOLUME_HYDROGEN_POLICY,
         "polymer_atom_count": polymer_atom_count,
         "component_ids": component_ids,
         "candidate_id": candidate.candidate_id if candidate is not None else None,
+        "candidate_lineage": (
+            {
+                "source_content_id": candidate.source_content_id,
+                "selection_id": candidate.selection_id,
+            }
+            if candidate is not None
+            else None
+        ),
         "sphere_ids": (
             tuple(sphere.sphere_id for sphere in candidate.alpha_spheres)
             if candidate is not None
@@ -582,6 +721,81 @@ def _build_volume_provenance(
         },
         analyzed_representation=selection.assembly_scope.value,
     )
+
+
+def _build_focus_provenance(
+    parsed: ParsedStructure,
+    candidates: Sequence[PocketCandidate],
+    definition: SiteDefinition,
+    result: FocusedPocketSelection,
+) -> MethodProvenance:
+    """Bind a focused-pocket choice to its inputs, rules, and support evidence."""
+
+    selection = parsed.selection
+    parameters: dict[str, object] = {
+        "selection_id": selection.selection_id,
+        "model_id": selection.model_id,
+        "author_chain_ids": selection.author_chain_ids,
+        "label_chain_ids": selection.label_chain_ids,
+        "altloc_policy": selection.altloc_policy.value,
+        "assembly_scope": selection.assembly_scope.value,
+        "hydrogen_policy": _VOLUME_HYDROGEN_POLICY,
+        "focused_site_atom_scope": "selected_primary_heavy_atoms",
+        "ligand_rules_version": POCKET_LIGAND_RULES_VERSION,
+        "site_definition": {
+            "site_id": definition.site_id,
+            "name": definition.name,
+            "mode": definition.mode.value,
+            "reference_residues": tuple(_residue_provenance(item) for item in definition.reference_residues),
+            "center_residue": (
+                _residue_provenance(definition.center_residue)
+                if definition.center_residue is not None
+                else None
+            ),
+            "ligand_id": definition.ligand_id,
+            "radius_angstrom": definition.radius_angstrom,
+        },
+        "candidate_ids": tuple(sorted(candidate.candidate_id for candidate in candidates)),
+        "candidate_lineage": tuple(
+            {
+                "candidate_id": candidate.candidate_id,
+                "source_content_id": candidate.source_content_id,
+                "selection_id": candidate.selection_id,
+            }
+            for candidate in sorted(candidates, key=lambda item: item.candidate_id)
+        ),
+        "selected_candidate_id": result.candidate.candidate_id if result.candidate is not None else None,
+        "availability": result.availability.value,
+        "ligand_support": result.ligand_support.to_json() if result.ligand_support is not None else None,
+    }
+    return MethodProvenance(
+        method_id=_FOCUS_METHOD_ID,
+        method_version=_FOCUS_METHOD_VERSION,
+        parameters=cast(Mapping[str, FrozenJSON], parameters),
+        units={
+            "site_definition.radius_angstrom": "angstrom",
+            "ligand_support.ligand_center_distance_angstrom": "angstrom",
+            "ligand_support.atom_coverage_fraction": "fraction",
+            "ligand_support.lining_residue_overlap_fraction": "fraction",
+        },
+        backend_versions={"pocket_ligand_rules": POCKET_LIGAND_RULES_VERSION},
+        input_hashes={
+            "raw_source": parsed.raw_source_hash,
+            "logical_content": selection.content_id,
+        },
+        analyzed_representation=selection.assembly_scope.value,
+    )
+
+
+def _residue_provenance(residue: ResidueId) -> dict[str, str | None]:
+    return {
+        "structure_id": residue.structure_id,
+        "model_id": residue.model_id,
+        "chain_id": residue.chain_id,
+        "auth_seq_id": residue.auth_seq_id,
+        "insertion_code": residue.insertion_code,
+        "residue_name": residue.residue_name,
+    }
 
 
 def _settings_units(payload: Mapping[str, object], prefix: str = "") -> dict[str, str]:

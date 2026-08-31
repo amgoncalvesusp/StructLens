@@ -1,7 +1,18 @@
 """Pocket-geometry primitives for structural reliability workflows."""
 
 from .delaunay import PocketAtom, alpha_sphere_from_simplex, detect_alpha_spheres
+from .focused import (
+    FocusedPocketSelection,
+    select_candidate_by_ligand_support,
+    select_candidate_by_seed_residues,
+)
 from .geometry import Circumsphere, CircumsphereResult, tetrahedron_circumsphere
+from .ligands import (
+    POCKET_LIGAND_RULES_VERSION,
+    PocketLigandSupport,
+    eligible_pocket_ligands,
+    measure_ligand_support,
+)
 from .models import (
     AlphaSphere,
     AlphaSphereDetectionResult,
@@ -27,14 +38,21 @@ __all__ = [
     "PocketAtom",
     "Circumsphere",
     "CircumsphereResult",
+    "FocusedPocketSelection",
+    "POCKET_LIGAND_RULES_VERSION",
     "POCKET_RADII_VERSION",
     "POCKET_VDW_RADII_ANGSTROM",
     "PocketCandidate",
     "PocketDetectionSettings",
     "PocketGeometrySettings",
+    "PocketLigandSupport",
     "tetrahedron_circumsphere",
     "alpha_sphere_from_simplex",
     "detect_alpha_spheres",
+    "eligible_pocket_ligands",
+    "measure_ligand_support",
+    "select_candidate_by_ligand_support",
+    "select_candidate_by_seed_residues",
     "vdw_radius_angstrom",
     "PocketVolumeComparison",
     "PocketVolumeResult",

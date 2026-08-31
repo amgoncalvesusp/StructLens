@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -17,19 +17,26 @@ from structlens.core.models import (
     StructureComponent,
 )
 from structlens.core.parsing import (
+    AltlocPolicy,
     AssemblyScope,
     InputSelection,
     ParsedStructure,
     StructureFormat,
     StructureMetadata,
 )
-from structlens.core.pockets import POCKET_RADII_VERSION, AlphaSphere, PocketCandidate
+from structlens.core.pockets import (
+    POCKET_RADII_VERSION,
+    AlphaSphere,
+    PocketCandidate,
+    compare_pocket_volumes,
+)
 from structlens.core.pockets.volume import PocketVolumeSettings
 
 
 def _candidate(*, radius: float = 2.0) -> PocketCandidate:
     residue = ResidueId("synthetic", "1", "A", "10", None, "ALA")
     atom_ids = tuple(f"sphere-atom-{index}" for index in range(4))
+    selection = _selection()
     return PocketCandidate(
         (
             AlphaSphere(
@@ -39,7 +46,19 @@ def _candidate(*, radius: float = 2.0) -> PocketCandidate:
                 lining_residues=(residue,),
                 source_simplex_atom_ids=atom_ids,
             ),
-        )
+        ),
+        source_content_id=selection.content_id,
+        selection_id=selection.selection_id,
+    )
+
+
+def _selection() -> InputSelection:
+    return InputSelection(
+        "a" * 64,
+        "holo-pocket.pdb",
+        StructureFormat.PDB,
+        "1",
+        author_chain_ids=("A",),
     )
 
 
@@ -111,7 +130,7 @@ def _parsed(*, include_unselected_ligand: bool = False) -> ParsedStructure:
     ligand = _component(
         "ligand-1",
         ComponentKind.LIGAND,
-        _atom((0.0, 0.0, 0.0), source_atom_id="ligand-h"),
+        _atom((0.0, 0.0, 0.0), element="O", source_atom_id="ligand-o"),
     )
     water = _component(
         "water-1",
@@ -127,13 +146,7 @@ def _parsed(*, include_unselected_ligand: bool = False) -> ParsedStructure:
             selected=False,
         )
         components += (unselected,)
-    selection = InputSelection(
-        "a" * 64,
-        "holo-pocket.pdb",
-        StructureFormat.PDB,
-        "1",
-        author_chain_ids=("A",),
-    )
+    selection = _selection()
     metadata = StructureMetadata(
         StructureFormat.PDB,
         "1",
@@ -224,20 +237,20 @@ def test_service_ignores_unselected_ligand_and_water_for_unoccupied_policy() -> 
 def test_service_applies_the_selected_altloc_policy_to_retained_ligands() -> None:
     parsed = _parsed()
     primary = AtomRecord(
-        "H",
-        "H",
+        "O",
+        "O",
         (0.0, 0.0, 0.0),
         altloc="A",
         occupancy=0.8,
-        source_atom_id="ligand-h-a",
+        source_atom_id="ligand-o-a",
     )
     alternate = AtomRecord(
-        "H",
-        "H",
+        "O",
+        "O",
         (1.5, 0.0, 0.0),
         altloc="B",
         occupancy=0.2,
-        source_atom_id="ligand-h-b",
+        source_atom_id="ligand-o-b",
     )
     ligand_with_altlocs = StructureComponent(
         "ligand-1",
@@ -272,6 +285,100 @@ def test_service_applies_the_selected_altloc_policy_to_retained_ligands() -> Non
     assert report.fine_voxel_count == baseline.fine_voxel_count
 
 
+def test_service_disables_cross_altloc_policy_volume_deltas() -> None:
+    parsed = _parsed()
+    first_choice = AtomRecord(
+        "O",
+        "O",
+        (1.5, 0.0, 0.0),
+        altloc="B",
+        occupancy=0.2,
+        source_atom_id="ligand-o-b",
+    )
+    highest_choice = AtomRecord(
+        "O",
+        "O",
+        (0.0, 0.0, 0.0),
+        altloc="A",
+        occupancy=0.8,
+        source_atom_id="ligand-o-a",
+    )
+    alternate_ligand = replace(
+        next(component for component in parsed.components if component.component_id == "ligand-1"),
+        atoms=(first_choice, highest_choice),
+    )
+    alternate_components = tuple(
+        alternate_ligand if component.component_id == "ligand-1" else component
+        for component in parsed.components
+    )
+    highest_parsed = ParsedStructure(
+        parsed.protein_structure,
+        alternate_components,
+        parsed.selection,
+        parsed.metadata,
+        parsed.raw_source_hash,
+    )
+    first_selection = replace(highest_parsed.selection, altloc_policy=AltlocPolicy.FIRST)
+    first_parsed = ParsedStructure(
+        highest_parsed.protein_structure,
+        alternate_components,
+        first_selection,
+        highest_parsed.metadata,
+        highest_parsed.raw_source_hash,
+    )
+    settings = _settings(policy="unoccupied")
+    service = StructurePocketService()
+
+    highest = service.measure_volume(highest_parsed, _candidate(), settings=settings)
+    first_candidate = replace(
+        _candidate(),
+        source_content_id=first_parsed.selection.content_id,
+        selection_id=first_parsed.selection.selection_id,
+    )
+    first = service.measure_volume(first_parsed, first_candidate, settings=settings)
+    comparison = compare_pocket_volumes(highest, first)
+
+    assert highest.fine_volume_angstrom3 != first.fine_volume_angstrom3
+    assert highest.compatibility_signature != first.compatibility_signature
+    assert comparison.availability is Availability.NOT_APPLICABLE
+    assert comparison.delta_angstrom3 is None
+
+
+def test_service_uses_heavy_atoms_for_both_polymer_and_retained_components() -> None:
+    parsed = _parsed()
+    hydrogen_ligand = _component(
+        "ligand-1",
+        ComponentKind.LIGAND,
+        _atom((0.0, 0.0, 0.0), element="H", source_atom_id="ligand-h"),
+    )
+    hydrogen_only = ParsedStructure(
+        parsed.protein_structure,
+        tuple(
+            hydrogen_ligand if component.component_id == "ligand-1" else component
+            for component in parsed.components
+        ),
+        parsed.selection,
+        parsed.metadata,
+        parsed.raw_source_hash,
+    )
+    service = StructurePocketService()
+
+    protein_only = service.measure_volume(
+        hydrogen_only,
+        _candidate(),
+        settings=_settings(policy="protein_only"),
+    )
+    unoccupied = service.measure_volume(
+        hydrogen_only,
+        _candidate(),
+        settings=_settings(policy="unoccupied"),
+    )
+
+    assert unoccupied.coarse_voxel_count == protein_only.coarse_voxel_count
+    assert unoccupied.fine_voxel_count == protein_only.fine_voxel_count
+    assert unoccupied.provenance.parameters["hydrogen_policy"] == "deposited_heavy_atoms_only"
+
+
 def test_service_preserves_unavailable_state_for_missing_candidate() -> None:
     report = StructurePocketService().measure_volume(_parsed(), None, settings=_settings())
 
@@ -280,6 +387,14 @@ def test_service_preserves_unavailable_state_for_missing_candidate() -> None:
     assert report.fine_volume_angstrom3 is None
     assert report.provenance is not None
     assert any(item.code == "pocket.volume.no_candidate" for item in report.diagnostics)
+
+
+def test_volume_service_rejects_candidate_from_another_selection() -> None:
+    parsed = _parsed()
+    foreign = replace(_candidate(), source_content_id="c" * 64)
+
+    with pytest.raises(ValueError, match="candidate lineage"):
+        StructurePocketService().measure_volume(parsed, foreign, settings=_settings())
 
 
 def test_service_propagates_voxel_limit_as_typed_failure_with_remediation() -> None:

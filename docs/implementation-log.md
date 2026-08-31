@@ -370,3 +370,65 @@
   environment/release-preparation follow-up for Task 17/18 rather than a Task 8
   implementation blocker. The next accepted item is Task 9, ligand support and
   focused pockets.
+- 2026-08-31 Task 8 post-commit scientific hardening: an independent review
+  found that the rotation-discretization bound omitted atom-exclusion surfaces,
+  unknown-radius exclusion atoms still produced a quantitative result, and
+  cross-altloc comparisons remained enabled. The correction now includes active
+  protein/component VDW boundary shells in the conservative rotation bound,
+  fails closed as `invalid_input` with source/atom identity when a selected
+  exclusion radius is unknown, appends altloc and heavy-atom policies to the
+  comparison signature, uses one deposited-heavy-atom policy for polymer and
+  retained components, and enforces availability/payload coherence. The focused
+  Task 8 suite reported 59 passed; `volume.py` reached 93% and
+  `volume_models.py` 96% branch-aware coverage. A fresh scientific re-review
+  confirmed that all prior HIGH findings were closed.
+- 2026-08-31 Task 9 (ligand support and focused pockets): added versioned,
+  conservative ligand eligibility rules; immutable ligand-support distance,
+  coverage, and lining-overlap evidence; and deterministic focus selection from
+  ligand support or key-residue seeds. Public ligand APIs now normalize raw
+  retained parser components to one explicit primary deposited heavy-atom
+  representation, validate residue and support identities, and never count
+  alternate conformers or deposited hydrogens twice. `FocusedPocketSelection`
+  retains the exact support evidence, candidate, typed state, JSON payload, and
+  a `structlens.pocket.focus` provenance record bound to source hashes,
+  selection/altloc scope, ligand rules, site definition, candidate set, and
+  selected result. Invalid state combinations and blank ligand identifiers fail
+  at the boundary; ligand evidence selects a candidate but never changes its
+  geometric measurement.
+- 2026-08-31 Task 9 gate: `python -m pytest tests/unit/core/pockets/test_ligands.py
+  tests/unit/core/pockets/test_focused.py tests/unit/application/test_pocket_service.py
+  -q` reported 43 passed. Branch-aware `coverage run` plus a filtered
+  `coverage report` measured `focused.py` at 95%, `ligands.py` at 93%, and 94%
+  combined. `python -m pytest -q` reported 555 passed; `python -m ruff check .`
+  passed; `python -m mypy src` passed across 146 source files;
+  `python -m pip_audit .` found no known vulnerabilities; and
+  `git diff --check` was clean apart from existing LF-to-CRLF notices. Fresh
+  Luna scientific/edge-case and Terra integration re-reviews found no remaining
+  CRITICAL/HIGH issue. The next accepted item is Task 10, pocket matching and
+  mutation comparison.
+- 2026-08-31 Task 9 final Terra fix round: the final integration review found
+  four HIGH gaps after the first gate. Detection now binds every ranked
+  `PocketCandidate` to the exact logical content and `InputSelection`, and the
+  application rejects foreign or unbound candidates before volume measurement
+  or focused selection. `RESIDUE_RADIUS` sites without `center_residue` fail at
+  the immutable contract boundary instead of becoming false negative evidence.
+  Focused radius resolution consistently uses selected primary heavy atoms and
+  records that scope. Pocket volume settings now bound sphere count, exclusion
+  atom count, sphere-voxel checks, and exclusion-neighbour checks; failures are
+  typed and occur before unbounded allocation or materialized neighbour lists.
+- 2026-08-31 accepted Task 9 gate after the fix round:
+  `python -m pytest tests/unit/core/pockets
+  tests/unit/application/test_pocket_service.py
+  tests/unit/application/test_pocket_volume_service.py
+  tests/unit/application/test_v03_services.py -q` reported 212 passed. The same
+  suite under branch-aware `coverage run` measured `focused.py` at 95%,
+  `ligands.py` at 93%, `models.py` at 93%, `volume.py` at 94%, and
+  `volume_models.py` at 96%. `python -m pytest -q` reported 564 passed;
+  `python -m ruff check .` passed; `python -m mypy src` passed across 146
+  source files; `python -m pip_audit .` found no known vulnerabilities; and
+  `git diff --check` was clean apart from existing LF-to-CRLF notices. A scoped
+  Terra re-review marked all four findings ADDRESSED and found no new
+  CRITICAL/HIGH issue. `python -m pip check` reported only the unrelated shared
+  interpreter conflict `open-webui 0.9.2` versus `onnxruntime`; neither package
+  is a StructLens dependency, so the clean-environment packaging gate remains
+  assigned to Tasks 17/18. The next accepted item is Task 10.

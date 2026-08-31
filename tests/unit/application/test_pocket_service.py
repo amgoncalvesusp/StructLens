@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from threading import Event
 
 import pytest
@@ -28,7 +29,13 @@ from structlens.core.parsing import (
     StructureFormat,
     StructureMetadata,
 )
-from structlens.core.pockets import PocketDetectionSettings
+from structlens.core.pockets import (
+    POCKET_LIGAND_RULES_VERSION,
+    AlphaSphere,
+    PocketCandidate,
+    PocketDetectionSettings,
+)
+from structlens.core.sites import SiteDefinition, SiteDefinitionMode
 
 
 def _parsed_shell(*, open_face: bool = False) -> ParsedStructure:
@@ -100,11 +107,20 @@ def _parsed_shell(*, open_face: bool = False) -> ParsedStructure:
     )
 
 
+def _bind_candidate(candidate: PocketCandidate, parsed: ParsedStructure) -> PocketCandidate:
+    return replace(
+        candidate,
+        source_content_id=parsed.selection.content_id,
+        selection_id=parsed.selection.selection_id,
+    )
+
+
 def test_pocket_service_detects_buried_pockets_and_records_provenance() -> None:
     progress: list[str] = []
+    parsed = _parsed_shell()
 
     report = detect_blind_pockets(
-        _parsed_shell(),
+        parsed,
         progress_callback=progress.append,
     )
 
@@ -115,7 +131,9 @@ def test_pocket_service_detects_buried_pockets_and_records_provenance() -> None:
     assert report.counts["alpha_spheres"] >= len(report.candidates[0].alpha_spheres)
     assert report.provenance is not None
     assert report.provenance.method_id == "structlens.pocket.detect"
-    assert report.provenance.parameters["selection_id"] == _parsed_shell().selection.selection_id
+    assert report.provenance.parameters["selection_id"] == parsed.selection.selection_id
+    assert report.candidates[0].source_content_id == parsed.selection.content_id
+    assert report.candidates[0].selection_id == parsed.selection.selection_id
     assert report.provenance.parameters["selection"] == {
         "model_id": "1",
         "author_chain_ids": ("A",),
@@ -334,3 +352,180 @@ def test_pocket_service_honors_cancellation_between_stages() -> None:
             progress_callback=cancel_after_prepare,
             cancel_event=cancel_event,
         )
+
+
+def test_pocket_service_selects_the_best_candidate_for_a_key_residue_site() -> None:
+    parsed = _parsed_shell()
+    first = PocketCandidate(
+        (
+            AlphaSphere(
+                center_xyz=(0.0, 0.0, 0.0),
+                radius_angstrom=2.0,
+                touching_atom_ids=("a1", "a2", "a3", "a4"),
+                 lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
+                source_simplex_atom_ids=("a1", "a2", "a3", "a4"),
+            ),
+        )
+    )
+    second = PocketCandidate(
+        (
+            AlphaSphere(
+                center_xyz=(4.0, 0.0, 0.0),
+                radius_angstrom=2.0,
+                touching_atom_ids=("b1", "b2", "b3", "b4"),
+                 lining_residues=(parsed.protein_structure.chains[0].residue_records[1].residue_id,),
+                source_simplex_atom_ids=("b1", "b2", "b3", "b4"),
+            ),
+        )
+    )
+    definition = SiteDefinition(
+        "focus",
+        "Focus",
+        SiteDefinitionMode.KEY_RESIDUES,
+        (first.lining_residues[0],),
+    )
+
+    selection = StructurePocketService().select_focused_candidate(
+        parsed,
+        (_bind_candidate(second, parsed), _bind_candidate(first, parsed)),
+        definition,
+    )
+
+    assert selection.availability is Availability.AVAILABLE
+    assert selection.candidate == _bind_candidate(first, parsed)
+
+
+def test_pocket_service_rejects_foreign_lineage_in_focused_selection() -> None:
+    parsed = _parsed_shell()
+    residue_id = parsed.protein_structure.chains[0].residue_records[0].residue_id
+    candidate = _bind_candidate(
+        PocketCandidate(
+            (
+                AlphaSphere(
+                    center_xyz=(0.0, 0.0, 0.0),
+                    radius_angstrom=2.0,
+                    touching_atom_ids=("a1", "a2", "a3", "a4"),
+                    lining_residues=(residue_id,),
+                    source_simplex_atom_ids=("a1", "a2", "a3", "a4"),
+                ),
+            )
+        ),
+        parsed,
+    )
+    definition = SiteDefinition(
+        "focus",
+        "Focus",
+        SiteDefinitionMode.KEY_RESIDUES,
+        (residue_id,),
+    )
+
+    with pytest.raises(ValueError, match="candidate lineage"):
+        StructurePocketService().select_focused_candidate(
+            parsed,
+            (replace(candidate, source_content_id="c" * 64),),
+            definition,
+        )
+
+
+def test_pocket_service_reports_no_eligible_ligand_for_buffer_only_sites() -> None:
+    parsed = _parsed_shell()
+    sulfate = StructureComponent(
+        component_id="SO4-1",
+        kind=ComponentKind.LIGAND,
+        atoms=(AtomRecord("S", "S", (0.0, 0.0, 0.0), source_atom_id="so4-s"),),
+        metadata={"selected_for_analysis": True},
+        model_id="1",
+        author_chain_id="A",
+        residue_name="SO4",
+        auth_seq_id="SO4-1",
+    )
+    with_buffer = ParsedStructure(
+        parsed.protein_structure,
+        parsed.components + (sulfate,),
+        parsed.selection,
+        parsed.metadata,
+        parsed.raw_source_hash,
+    )
+    candidate = PocketCandidate(
+        (
+            AlphaSphere(
+                center_xyz=(0.0, 0.0, 0.0),
+                radius_angstrom=2.0,
+                touching_atom_ids=("c1", "c2", "c3", "c4"),
+                 lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
+                source_simplex_atom_ids=("c1", "c2", "c3", "c4"),
+            ),
+        )
+    )
+    definition = SiteDefinition(
+        "ligand-focus",
+        "Ligand Focus",
+        SiteDefinitionMode.LIGAND_RADIUS,
+        (),
+        None,
+        "SO4-1",
+        4.0,
+    )
+
+    selection = StructurePocketService().select_focused_candidate(
+        with_buffer,
+        (_bind_candidate(candidate, with_buffer),),
+        definition,
+    )
+
+    assert selection.availability is Availability.NOT_APPLICABLE
+    assert selection.candidate is None
+    assert any(item.code == "pocket.focus.no_eligible_ligand" for item in selection.diagnostics)
+
+
+def test_pocket_service_retains_ligand_support_and_focus_provenance() -> None:
+    parsed = _parsed_shell()
+    atp = StructureComponent(
+        component_id="ATP-1",
+        kind=ComponentKind.LIGAND,
+        atoms=(AtomRecord("P", "P", (0.0, 0.0, 0.0), source_atom_id="atp-p"),),
+        metadata={"selected_for_analysis": True},
+        model_id="1",
+        author_chain_id="A",
+        residue_name="ATP",
+        auth_seq_id="ATP-1",
+    )
+    with_atp = ParsedStructure(
+        parsed.protein_structure,
+        parsed.components + (atp,),
+        parsed.selection,
+        parsed.metadata,
+        parsed.raw_source_hash,
+    )
+    candidate = PocketCandidate(
+        (
+            AlphaSphere(
+                center_xyz=(0.0, 0.0, 0.0),
+                radius_angstrom=2.0,
+                touching_atom_ids=("d1", "d2", "d3", "d4"),
+                 lining_residues=(parsed.protein_structure.chains[0].residue_records[0].residue_id,),
+                source_simplex_atom_ids=("d1", "d2", "d3", "d4"),
+            ),
+        )
+    )
+    definition = SiteDefinition(
+        "atp-focus",
+        "ATP focus",
+        SiteDefinitionMode.LIGAND_RADIUS,
+        ligand_id="ATP-1",
+        radius_angstrom=4.0,
+    )
+
+    selection = StructurePocketService().select_focused_candidate(
+        with_atp,
+        (_bind_candidate(candidate, with_atp),),
+        definition,
+    )
+
+    assert selection.availability is Availability.AVAILABLE
+    assert selection.ligand_support is not None
+    assert selection.ligand_support.component_id == "ATP-1"
+    assert selection.provenance is not None
+    assert selection.provenance.method_id == "structlens.pocket.focus"
+    assert selection.provenance.parameters["ligand_rules_version"] == POCKET_LIGAND_RULES_VERSION
+    assert selection.to_json()["provenance"]["input_hashes"]["raw_source"] == "b" * 64

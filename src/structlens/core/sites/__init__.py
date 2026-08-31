@@ -58,6 +58,9 @@ class SiteDefinition:
             reference_residues = tuple(legacy.pop("key_residues"))  # type: ignore[arg-type]
         if legacy:
             raise TypeError(f"unexpected SiteDefinition fields: {', '.join(sorted(legacy))}")
+        site_id = str(site_id).strip()
+        name = str(name).strip()
+        ligand_id = str(ligand_id).strip() if ligand_id is not None else None
         if not site_id or not name:
             raise ValueError("site_id and name must not be empty")
         if mode is None:
@@ -69,10 +72,14 @@ class SiteDefinition:
         if mode is SiteDefinitionMode.KEY_RESIDUES and not residues:
             raise ValueError("key_residues sites require reference_residues")
         if mode is SiteDefinitionMode.LIGAND_RADIUS and not ligand_id:
-            raise ValueError("ligand_radius sites require ligand_id")
+            raise ValueError("ligand_radius sites require a non-empty ligand_id")
+        if mode is SiteDefinitionMode.RESIDUE_RADIUS and center_residue is None:
+            raise ValueError("residue_radius sites require center_residue")
         if mode in {SiteDefinitionMode.LIGAND_RADIUS, SiteDefinitionMode.RESIDUE_RADIUS} and radius_angstrom is None:
             raise ValueError("radius_angstrom is required for radius sites")
         _distance(radius_angstrom, "radius_angstrom")
+        if center_residue is not None and not isinstance(center_residue, ResidueId):
+            raise TypeError("center_residue must be a ResidueId or None")
         object.__setattr__(self, "site_id", site_id)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "mode", mode)
@@ -88,6 +95,14 @@ class SiteDefinition:
     @property
     def key_residues(self) -> tuple[ResidueId, ...]:
         return self.reference_residues
+
+    @property
+    def is_ligand_site(self) -> bool:
+        return self.mode is SiteDefinitionMode.LIGAND_RADIUS
+
+    @property
+    def is_radius_site(self) -> bool:
+        return self.mode in {SiteDefinitionMode.LIGAND_RADIUS, SiteDefinitionMode.RESIDUE_RADIUS}
 
 
 @dataclass(frozen=True, slots=True)

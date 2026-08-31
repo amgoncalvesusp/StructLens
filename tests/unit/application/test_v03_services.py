@@ -6,7 +6,7 @@ import pytest
 from structlens.application.difference_map_service import build_displacement_vectors, calculate_distance_difference
 from structlens.application.interaction_service import InteractionAnalysisService
 from structlens.application.msa_service import align_sequences, parse_alignment
-from structlens.application.site_service import calculate_site_metrics
+from structlens.application.site_service import calculate_site_metrics, define_site
 from structlens.core.interactions import InteractionType
 from structlens.core.models import AtomRecord, ResidueId, ResidueNumbering, ResidueRecord
 from structlens.core.msa import AnalysisSequence, MSASettings, SequenceResidueRef
@@ -104,6 +104,45 @@ def test_ligand_radius_site_uses_explicit_ligand_atoms() -> None:
     )
     assert metrics.mapped_residue_count == 1
     assert metrics.coverage_fraction == 1.0
+
+
+def test_radius_site_selection_ignores_deposited_hydrogens() -> None:
+    residue_id = _rid("ref", 1, "SER")
+    residue = ResidueRecord(
+        residue_id,
+        ResidueNumbering("1", "1", None),
+        "SER",
+        "S",
+        (
+            AtomRecord("CA", "C", (3.0, 0.0, 0.0)),
+            AtomRecord("H", "H", (0.25, 0.0, 0.0)),
+        ),
+    )
+    definition = SiteDefinition(
+        "ligand",
+        "Ligand site",
+        SiteDefinitionMode.LIGAND_RADIUS,
+        ligand_id="LIG1",
+        radius_angstrom=1.0,
+    )
+
+    selected = define_site(
+        definition,
+        (residue,),
+        ligand_atoms={"LIG1": (AtomRecord("C1", "C", (0.0, 0.0, 0.0)),)},
+    )
+
+    assert selected == ()
+
+
+def test_residue_radius_site_requires_a_center_residue() -> None:
+    with pytest.raises(ValueError, match="center_residue"):
+        SiteDefinition(
+            "residue",
+            "Residue site",
+            SiteDefinitionMode.RESIDUE_RADIUS,
+            radius_angstrom=4.0,
+        )
 
 
 def test_site_composition_uses_target_residue_chemistry() -> None:

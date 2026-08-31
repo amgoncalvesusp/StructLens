@@ -71,11 +71,27 @@ def _thaw_json(value: Any) -> Any:
     return value
 
 
-def _diagnostic(code: str, message: str, *, remediation: str | None = None) -> Diagnostic:
+def _diagnostic(
+    code: str,
+    message: str,
+    *,
+    severity: DiagnosticSeverity | None = None,
+    source_id: str | None = None,
+    atom_id: str | None = None,
+    remediation: str | None = None,
+) -> Diagnostic:
     return Diagnostic(
         code=code,
-        severity=DiagnosticSeverity.ERROR if code.endswith("resource_limit") else DiagnosticSeverity.WARNING,
+        severity=(
+            severity
+            if severity is not None
+            else DiagnosticSeverity.ERROR
+            if code.endswith("resource_limit")
+            else DiagnosticSeverity.WARNING
+        ),
         message=message,
+        source_id=source_id,
+        atom_id=atom_id,
         remediation=remediation,
     )
 
@@ -90,6 +106,10 @@ class PocketVolumeSettings:
     component_exclusion_policy: str = "protein_only"
     max_voxel_count: int = 2_000_000
     voxel_chunk_size: int = 16_384
+    max_sphere_count: int = 10_000
+    max_exclusion_atom_count: int = 50_000
+    max_sphere_voxel_checks: int = 100_000_000
+    max_exclusion_neighbor_checks: int = 5_000_000
     radii_version: str = POCKET_RADII_VERSION
 
     def __post_init__(self) -> None:
@@ -116,6 +136,13 @@ class PocketVolumeSettings:
         object.__setattr__(self, "component_exclusion_policy", policy)
         object.__setattr__(self, "max_voxel_count", _positive_int(self.max_voxel_count, "max_voxel_count"))
         object.__setattr__(self, "voxel_chunk_size", _positive_int(self.voxel_chunk_size, "voxel_chunk_size"))
+        for name in (
+            "max_sphere_count",
+            "max_exclusion_atom_count",
+            "max_sphere_voxel_checks",
+            "max_exclusion_neighbor_checks",
+        ):
+            object.__setattr__(self, name, _positive_int(getattr(self, name), name))
         radii_version = str(self.radii_version).strip()
         if radii_version != POCKET_RADII_VERSION:
             raise ValueError("radii_version must identify the active pocket radii table")
@@ -151,6 +178,10 @@ class PocketVolumeSettings:
             "component_exclusion_policy": self.component_exclusion_policy,
             "max_voxel_count": self.max_voxel_count,
             "voxel_chunk_size": self.voxel_chunk_size,
+            "max_sphere_count": self.max_sphere_count,
+            "max_exclusion_atom_count": self.max_exclusion_atom_count,
+            "max_sphere_voxel_checks": self.max_sphere_voxel_checks,
+            "max_exclusion_neighbor_checks": self.max_exclusion_neighbor_checks,
             "radii_version": self.radii_version,
             "grid_phase": _GRID_PHASE,
             "grid_sampling": _GRID_SAMPLING,
@@ -268,6 +299,23 @@ class PocketVolumeResult:
             if not candidate_id:
                 raise ValueError("candidate_id must not be empty when provided")
             object.__setattr__(self, "candidate_id", candidate_id)
+        quantitative = (
+            self.coarse_voxel_count,
+            self.fine_voxel_count,
+            self.coarse_volume_angstrom3,
+            self.fine_volume_angstrom3,
+        )
+        if availability is Availability.AVAILABLE:
+            if any(value is None for value in quantitative) or self.sensitivity is None:
+                raise ValueError(
+                    "available pocket volume results require both grid counts, volumes, and sensitivity"
+                )
+        elif (
+            any(value is not None for value in quantitative)
+            or self.sensitivity is not None
+            or self.rotation_error_bound_angstrom3 is not None
+        ):
+            raise ValueError("unavailable pocket volume results must not carry quantitative measurements")
 
     @property
     def status(self) -> Availability:

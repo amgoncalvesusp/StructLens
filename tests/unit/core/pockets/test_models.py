@@ -192,3 +192,29 @@ def test_pocket_candidate_rejects_empty_or_untyped_sphere_collections() -> None:
         PocketCandidate(alpha_spheres=(object(),))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="AlphaSphere"):
         PocketCandidate(alpha_spheres=())
+
+
+def test_pocket_candidate_lineage_is_validated_without_changing_geometry_identity() -> None:
+    sphere = AlphaSphere(
+        center_xyz=(0.0, 0.0, 0.0),
+        radius_angstrom=3.0,
+        touching_atom_ids=("atom-1", "atom-2", "atom-3", "atom-4"),
+        lining_residues=(_residue("A", "10"),),
+        source_simplex_atom_ids=("atom-1", "atom-2", "atom-3", "atom-4"),
+    )
+    geometric = PocketCandidate((sphere,))
+    bound = PocketCandidate(
+        (sphere,),
+        source_content_id="a" * 64,
+        selection_id="b" * 64,
+    )
+
+    assert bound.candidate_id == geometric.candidate_id
+    assert bound.to_json()["lineage"] == {
+        "source_content_id": "a" * 64,
+        "selection_id": "b" * 64,
+    }
+    with pytest.raises(ValueError, match="together"):
+        PocketCandidate((sphere,), source_content_id="a" * 64)
+    with pytest.raises(ValueError, match="SHA-256"):
+        PocketCandidate((sphere,), source_content_id="bad", selection_id="b" * 64)
