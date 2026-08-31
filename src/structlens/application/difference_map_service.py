@@ -24,10 +24,17 @@ def calculate_distance_difference(
     labels = tuple(reference_positions)
     valid = np.asarray([label in reference_ca and label in target_ca for label in labels], dtype=bool)
     reference = np.zeros((len(labels), len(labels)), dtype=np.float64)
-    target = np.full_like(reference, np.nan)
+    # Unmapped pairs are carried by valid_mask, not by a sentinel value. NaN
+    # would be rejected by the strict finiteness check on the value model, so
+    # masked cells keep a finite placeholder that callers must not read.
+    target = np.zeros_like(reference)
     if valid.any():
-        ref_coords = np.asarray([reference_ca[label] for label, ok in zip(labels, valid, strict=True) if ok], dtype=np.float64)
-        tar_coords = np.asarray([target_ca[label] for label, ok in zip(labels, valid, strict=True) if ok], dtype=np.float64)
+        ref_coords = np.asarray(
+            [reference_ca[label] for label, ok in zip(labels, valid, strict=True) if ok], dtype=np.float64
+        )
+        tar_coords = np.asarray(
+            [target_ca[label] for label, ok in zip(labels, valid, strict=True) if ok], dtype=np.float64
+        )
         indices = np.flatnonzero(valid)
         reference[np.ix_(indices, indices)] = _distance_matrix(ref_coords)
         target[np.ix_(indices, indices)] = _distance_matrix(tar_coords)
@@ -49,7 +56,12 @@ def build_displacement_vectors(
 ) -> tuple[ResidueDisplacementVector, ...]:
     values: list[ResidueDisplacementVector] = []
     for position in positions:
-        if position not in reference_ca or position not in target_ca_in_reference_frame or position not in reference_residues or position not in target_residues:
+        if (
+            position not in reference_ca
+            or position not in target_ca_in_reference_frame
+            or position not in reference_residues
+            or position not in target_residues
+        ):
             continue
         raw_start = tuple(float(item) for item in reference_ca[position])
         raw_end = tuple(float(item) for item in target_ca_in_reference_frame[position])
@@ -60,7 +72,11 @@ def build_displacement_vectors(
         vector = (end[0] - start[0], end[1] - start[1], end[2] - start[2])
         magnitude = float(np.linalg.norm(vector))
         if magnitude >= minimum_magnitude_angstrom:
-            values.append(ResidueDisplacementVector(position, reference_residues[position], target_residues[position], start, end, vector, magnitude))
+            values.append(
+                ResidueDisplacementVector(
+                    position, reference_residues[position], target_residues[position], start, end, vector, magnitude
+                )
+            )
     values.sort(key=lambda item: (-item.magnitude_angstrom, item.reference_position))
     return tuple(values[:maximum_vectors])
 

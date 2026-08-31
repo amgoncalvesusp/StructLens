@@ -50,3 +50,26 @@
 - 2026-08-30 Task 0 gate output: `python -m pytest -q` reported 136 passed with
   no skips; `python -m ruff check .` passed; `python -m mypy src` reported
   success across 109 source files; `git diff --check` was clean. Python 3.11.9.
+- 2026-08-30 Task 1 (correct v0.3 scientific semantics): five RED tests were added
+  to `tests/unit/application/test_v03_services.py` and each was confirmed to fail
+  for its intended reason before any production edit. Four defects fixed in
+  `site_service.py`. (a) Both fields named `*_backbone_rmsd_angstrom` measured the
+  C-alpha alone, so a target whose carbonyl oxygens were displaced 2.0 A reported a
+  perfect 0.0; the new `_backbone_coords` helper collects matched N/CA/C/O in a
+  fixed order and returns None for an incomplete backbone instead of pairing
+  mismatched atoms. (b) Site-fitted RMSD subtracted centroids only, which removes
+  translation but leaves rotation; it now uses `core/geometry/kabsch.py` via
+  `_site_fitted_rmsd`, so a rigidly rotated site fits to 0.0 as the name implies.
+  (c) Global-frame RMSD was computed even with no authoritative transform,
+  comparing coordinates in unrelated frames; it is now None unless
+  `target_transform` is supplied. (d) `_envelope_volume` returned 0.0 for fewer
+  than four atoms and let SciPy `QhullError` escape on collinear or coplanar input;
+  both are now reported as unavailable. A fifth fix in `difference_map_service.py`:
+  masked target distances were stored as NaN, which the strict finiteness check in
+  `core/difference_maps/__init__.py` rejected, so every partially mapped structure
+  pair raised `ValueError: target_distances_angstrom must be finite`. Masked cells
+  now hold a finite placeholder and `valid_mask` remains the sole authority.
+- 2026-08-30 Task 1 gate output: `python -m pytest -q` reported 141 passed with no
+  skips; `python -m pytest tests/unit/core/geometry tests/unit/application -q`
+  reported 37 passed; Ruff passed over the touched paths; mypy reported success;
+  `git diff --check` was clean.
