@@ -17,6 +17,7 @@ from .interaction_service import InteractionAnalysisService
 from .msa_service import MuscleAlignmentEngine, align_sequences, parse_alignment
 from .mutation_service import MutationService
 from .project_state import ProjectState
+from .quality_service import StructureQualityService, assess_structure_quality
 from .site_service import calculate_site_metrics, define_site
 from .visualization_service import VisualizationService
 
@@ -26,10 +27,12 @@ __all__ = [
     "MatrixDataset",
     "MutationService",
     "ProjectState",
+    "StructureQualityService",
     "VisualizationService",
     "InteractionAnalysisService",
     "MuscleAlignmentEngine",
     "align_sequences",
+    "assess_structure_quality",
     "parse_alignment",
     "calculate_distance_difference",
     "build_displacement_vectors",

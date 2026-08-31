@@ -12,6 +12,7 @@ from structlens.core.models import ComponentKind
 from structlens.core.parsing import (
     AltlocPolicy,
     AssemblyScope,
+    CoordinateQualityError,
     InputSelection,
     ParseLimits,
     StructureFormat,
@@ -254,8 +255,14 @@ def test_malformed_pdb_is_reported_at_the_parser_boundary(tmp_path: Path) -> Non
     path = tmp_path / "malformed.pdb"
     path.write_text("ATOM      1  N   ALA A   1       not coordinates\nEND\n", encoding="ascii")
 
-    with pytest.raises(StructureParseError, match="unable to parse PDB source"):
+    with pytest.raises(CoordinateQualityError) as caught:
         load_structure(path)
+
+    assert caught.value.report.availability.value == "invalid_input"
+    assert {item.code for item in caught.value.report.diagnostics} >= {
+        "coordinate.invalid",
+        "element.missing",
+    }
 
 
 def test_legacy_wrappers_keep_all_models_and_non_water_hetero_records() -> None:

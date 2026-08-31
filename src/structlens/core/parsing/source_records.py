@@ -280,7 +280,14 @@ def _row_value(row: Sequence[str], index: Mapping[str, int], key: str) -> str:
 
 
 def _is_loop_boundary(token: str) -> bool:
-    return token == "loop_" or token.startswith("data_") or token.startswith("_")
+    return (
+        token == "loop_"
+        or token.startswith("data_")
+        or token.startswith("stop_")
+        or token.startswith("save_")
+        or token.startswith("global_")
+        or token.startswith("_")
+    )
 
 
 def pdb_atom_metadata(source: bytes) -> dict[tuple[str, str], AtomSiteMetadata]:

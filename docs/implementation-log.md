@@ -156,3 +156,37 @@
   model and parsing modules was 81%. `pip-audit` resolved the declared runtime,
   GUI, and chart dependency set with no known vulnerabilities, and the changed-file
   secret-pattern scan found no secret-like assignments or private keys.
+- 2026-08-31 Task 4 (coordinate QC): RED tests first covered raw malformed PDB/mmCIF
+  scalars, parser short-circuiting, semantic atom duplicates, altloc occupancy,
+  missing backbone atoms, element/radius uncertainty, chain geometry, indexed
+  overlaps, rigid-body invariance, sparse-input behavior, typed reports, and service
+  provenance. The new raw audit keeps `AtomRecord` strict and retains every source
+  row in lenient immutable snapshots; blocking errors raise `CoordinateQualityError`
+  with the exact typed report before `PDBParser`/`MMCIFParser` can run. Direct PDB
+  audit paths enforce byte limits before reading and atom/model/chain/residue limits
+  before materializing residue snapshots. Repeated atom serials in distinct models
+  remain valid while duplicate chemical identities in one model fail closed.
+- 2026-08-31 Task 4 scientific semantics: the atomic gate reports non-numeric or
+  non-finite coordinates, occupancy outside the declared inclusive interval,
+  B-factors below the declared minimum, missing explicit elements, unknown radii,
+  duplicate identities, altloc sums above 1.01, and missing polymer backbone atoms.
+  Geometry uses permissive coordinate-sanity intervals (`C(i)-N(i+1) <= 2.0 Å` and
+  `2.5–4.5 Å` for consecutive C-alpha atoms), not refinement validation. Heavy-atom
+  overlaps use `cKDTree`, full VdW overlap `>= 0.40 Å`, deterministic pair ordering,
+  and one versioned Bondi-style polymer table with an explicit Se extension.
+  Hydrogens, same-residue pairs, adjacent residues, and probable disulfides are
+  excluded; ligand/water/ion/metal contacts and source connectivity are outside this
+  first screen. The provenance states that source connection records are not yet
+  retained, so no MolProbity or crystallographic clash-score claim is made.
+- 2026-08-31 Task 4 review/gate: delegated Luna implementation covered atomic QC,
+  raw parser gating, geometry, clashes, and radii; Terra and Sol reviews defined the
+  fail-closed boundary and scientific thresholds. All reported HIGH risks were
+  addressed: no partial normalized structure, no post-Biopython duplicate loss, no
+  element-name guessing, restricted clash scope, and explicit geometry limitations.
+  A fresh gate reported 300 passing tests; Task 4 focused branch coverage was 95%
+  (required 90%); Ruff passed; mypy passed across 125 source files; `git diff
+  --check` passed; and `pip-audit .` reported no known vulnerabilities. Two final
+  delegated re-review attempts were unavailable because the subagent quota was
+  exhausted, so the primary agent completed the final diff/security/scientific
+  audit locally. Next executable plan item is Task 5, canonical report and v0.3
+  orchestration.

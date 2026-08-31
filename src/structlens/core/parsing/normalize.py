@@ -61,6 +61,7 @@ from .classification import (
 from .classification import (
     selected_atoms as _selected_atoms,
 )
+from .coordinate_audit import audit_mmcif_source, audit_pdb_source
 from .limits import ParseLimits, SnapshotLimitError, StructureParseError
 from .models import (
     AltlocPolicy,
@@ -92,9 +93,6 @@ from .source_records import (
 from .source_records import (
     preflight_mmcif_bytes as _preflight_mmcif_bytes,
 )
-from .source_records import (
-    preflight_pdb as _preflight_pdb,
-)
 
 _ONE_LETTER_BY_THREE_LETTER = {name.upper(): letter for name, letter in protein_letters_3to1.items()}
 KNOWN_LIGANDS = _KNOWN_LIGANDS
@@ -114,8 +112,7 @@ def load_structure_legacy(path: Path) -> ProteinStructure:
     snapshot = capture_snapshot(path)
     structure_id = _structure_id(snapshot.display_name, snapshot.logical_format)
     if snapshot.logical_format == "pdb":
-        _preflight_pdb(snapshot.decompressed_bytes, ParseLimits())
-        structure, atom_metadata, _, _, _ = _parse_pdb(snapshot, structure_id)
+        structure, atom_metadata, _, _, _ = _parse_pdb(snapshot, structure_id, ParseLimits())
     else:
         structure, atom_metadata, _, _, _ = _parse_mmcif(snapshot, structure_id, ParseLimits())
     return _normalize_legacy_structure(structure, structure_id, path, atom_metadata)
@@ -147,8 +144,11 @@ def load_structure_evidence(
 
     structure_id = _structure_id(snapshot.display_name, snapshot.logical_format)
     if snapshot.logical_format == "pdb":
-        _preflight_pdb(snapshot.decompressed_bytes, active_limits)
-        structure, atom_metadata, diagnostics, method, resolution = _parse_pdb(snapshot, structure_id)
+        structure, atom_metadata, diagnostics, method, resolution = _parse_pdb(
+            snapshot,
+            structure_id,
+            active_limits,
+        )
         fmt = StructureFormat.PDB
     else:
         structure, atom_metadata, diagnostics, method, resolution = _parse_mmcif(snapshot, structure_id, active_limits)
@@ -222,11 +222,18 @@ def normalize_biopython_structure(
 def _parse_pdb(
     snapshot: SourceSnapshot,
     structure_id: str,
+    limits: ParseLimits,
 ) -> tuple[Any, dict[tuple[str, str], _AtomSiteMetadata], tuple[Diagnostic, ...], str | None, float | None]:
     text = _decode_source(snapshot)
     try:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            audit = audit_pdb_source(
+                snapshot.decompressed_bytes,
+                source_id=snapshot.display_name,
+                structure_id=structure_id,
+                limits=limits,
+            )
             parser = PDBParser(QUIET=False, PERMISSIVE=True)  # type: ignore[no-untyped-call]
             structure = parser.get_structure(structure_id, io.StringIO(text))  # type: ignore[no-untyped-call]
     except (SnapshotLimitError, StructureParseError):
@@ -236,7 +243,10 @@ def _parse_pdb(
     header = getattr(structure, "header", {}) or {}
     method = _clean_method(header.get("structure_method"))
     resolution = _positive_float(header.get("resolution"))
-    diagnostics = _warning_diagnostics(caught, snapshot.display_name)
+    diagnostics = _merge_diagnostics(
+        audit.report.diagnostics,
+        _warning_diagnostics(caught, snapshot.display_name),
+    )
     return structure, _pdb_atom_metadata(snapshot.decompressed_bytes), diagnostics, method, resolution
 
 
@@ -251,6 +261,12 @@ def _parse_mmcif(
             warnings.simplefilter("always")
             _preflight_mmcif_bytes(snapshot.decompressed_bytes, limits)
             cif = MMCIF2Dict(io.StringIO(text))  # type: ignore[no-untyped-call]
+            audit = audit_mmcif_source(
+                cif,
+                source_id=snapshot.display_name,
+                structure_id=structure_id,
+                limits=limits,
+            )
             parser = MMCIFParser(QUIET=False)  # type: ignore[no-untyped-call]
             structure = parser.get_structure(structure_id, io.StringIO(text))  # type: ignore[no-untyped-call]
     except (SnapshotLimitError, StructureParseError):
@@ -260,7 +276,10 @@ def _parse_mmcif(
     atom_metadata = _mmcif_atom_metadata(cif)
     method = _clean_method(_first_value(cif, "_exptl.method"))
     resolution = _positive_float(_first_value(cif, "_refine.ls_d_res_high"))
-    diagnostics = _warning_diagnostics(caught, snapshot.display_name)
+    diagnostics = _merge_diagnostics(
+        audit.report.diagnostics,
+        _warning_diagnostics(caught, snapshot.display_name),
+    )
     return structure, atom_metadata, diagnostics, method, resolution
 
 
@@ -632,7 +651,7 @@ def _atom_record(
     serial = getattr(atom, "serial_number", None)
     source_meta = atom_metadata.get((model_id, str(serial))) if serial is not None else None
     name = str(atom.get_name()).strip()
-    element = str(getattr(atom, "element", "")).strip().upper() or name[0]
+    element = str(getattr(atom, "element", "")).strip().upper()
     source_serial: int | str | None
     if isinstance(serial, int):
         source_serial = serial
@@ -679,6 +698,24 @@ def _warning_diagnostics(warnings_seen: Sequence[Any], source_name: str) -> tupl
         )
         for item in warnings_seen
     )
+
+
+def _merge_diagnostics(*groups: Sequence[Diagnostic]) -> tuple[Diagnostic, ...]:
+    """Return stable diagnostics without duplicating identical source evidence."""
+
+    unique: dict[tuple[object, ...], Diagnostic] = {}
+    for diagnostic in (item for group in groups for item in group):
+        key = (
+            diagnostic.code,
+            diagnostic.severity,
+            diagnostic.message,
+            diagnostic.source_id,
+            diagnostic.residue_id,
+            diagnostic.atom_id,
+            diagnostic.remediation,
+        )
+        unique.setdefault(key, diagnostic)
+    return tuple(unique.values())
 
 
 __all__ = [
