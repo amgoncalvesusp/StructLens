@@ -8,6 +8,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 
 import pytest
 
+from structlens.core.models.components import ComponentKind, StructureComponent
 from structlens.core.models.correspondence import (
     CorrespondenceStatus,
     ResidueCorrespondence,
@@ -15,7 +16,7 @@ from structlens.core.models.correspondence import (
 from structlens.core.models.mutation import MutationEvent, MutationKind
 from structlens.core.models.residue import ResidueId, ResidueNumbering
 from structlens.core.models.settings import AlignmentMode, AnalysisSettings
-from structlens.core.models.structure import AtomRecord, ProteinChain, ResidueRecord
+from structlens.core.models.structure import AtomRecord, ProteinChain, ProteinStructure, ResidueRecord
 
 
 def test_residue_id_distinguishes_insertion_codes() -> None:
@@ -136,3 +137,174 @@ def test_chain_keeps_legacy_residue_ids_and_rich_residue_records() -> None:
 
     assert chain.residues == (residue_id,)
     assert chain.residue_records[0].atoms[0].coordinate == (0.0, 0.0, 0.0)
+
+
+def test_atom_record_retains_coordinate_evidence_and_source_identity() -> None:
+    atom = AtomRecord(
+        "CA",
+        "C",
+        (1, 2, 3),
+        altloc="A",
+        occupancy=0.75,
+        b_factor=22.5,
+        source_atom_id="atom-site-17",
+        source_serial=17,
+        formal_charge=0,
+    )
+
+    assert atom.b_factor == pytest.approx(22.5)
+    assert atom.source_atom_id == "atom-site-17"
+    assert atom.source_serial == 17
+    assert atom.formal_charge == 0
+    with pytest.raises(FrozenInstanceError):
+        atom.b_factor = 1.0  # type: ignore[misc]
+
+
+def test_protein_chain_retains_author_label_and_entity_ids() -> None:
+    chain = ProteinChain(
+        "structure",
+        "1",
+        "A",
+        author_chain_id="auth-A",
+        label_chain_id="label-A",
+        entity_id="2",
+    )
+
+    assert chain.author_chain_id == "auth-A"
+    assert chain.label_chain_id == "label-A"
+    assert chain.entity_id == "2"
+
+
+def test_structure_component_keeps_other_components_explicitly() -> None:
+    atom = AtomRecord("C1", "C", (0, 0, 0), source_serial=8)
+    metadata = {"residue_name": "UNX", "auth_chain_id": "A"}
+    component = StructureComponent(
+        component_id="1:A:8:UNX",
+        kind=ComponentKind.OTHER,
+        atoms=(atom,),
+        metadata=metadata,
+    )
+    metadata["residue_name"] = "LIG"
+
+    assert component.kind is ComponentKind.OTHER
+    assert component.component_id == "1:A:8:UNX"
+    assert component.atoms == (atom,)
+    assert component.metadata["residue_name"] == "UNX"
+    with pytest.raises(TypeError):
+        component.metadata["new"] = "value"  # type: ignore[index]
+
+
+def test_nested_structure_collections_are_tuples_and_validate_types() -> None:
+    atom = AtomRecord("CA", "C", (0, 0, 0))
+    residue_id = ResidueId("x", "1", "A", "1", None, "ALA")
+    residue = ResidueRecord(
+        residue_id=residue_id,
+        numbering=ResidueNumbering("1", "1", None),
+        residue_name="ALA",
+        one_letter="A",
+        atoms=[atom],  # type: ignore[arg-type]
+    )
+    assert residue.atoms == (atom,)
+    with pytest.raises(TypeError):
+        ResidueRecord(
+            residue_id=residue_id,
+            numbering=ResidueNumbering("1", "1", None),
+            residue_name="ALA",
+            one_letter="A",
+            atoms=(object(),),  # type: ignore[arg-type]
+        )
+
+    chain = ProteinChain("x", "1", "A", residues=(residue_id,), residue_records=(residue,))
+    structure = ProteinStructure("x", chains=[chain])  # type: ignore[arg-type]
+    assert structure.chains == (chain,)
+    with pytest.raises(TypeError):
+        ProteinStructure("x", chains=(object(),))  # type: ignore[arg-type]
+
+
+def test_nested_structure_metadata_is_deeply_immutable() -> None:
+    metadata = {"source": {"tags": ["experimental"]}}
+    chain = ProteinChain("x", "1", "A", metadata=metadata)
+    structure = ProteinStructure("x", metadata=metadata)
+    metadata["source"]["tags"].append("changed")
+
+    assert chain.metadata["source"]["tags"] == ("experimental",)
+    assert structure.metadata["source"]["tags"] == ("experimental",)
+    with pytest.raises(TypeError):
+        chain.metadata["source"]["tags"] += ("changed",)  # type: ignore[index]
+    with pytest.raises(TypeError):
+        structure.metadata["source"]["tags"] += ("changed",)  # type: ignore[index]
+
+
+def test_source_serial_rejects_non_integer_non_string_values() -> None:
+    with pytest.raises(ValueError):
+        AtomRecord("CA", "C", (0, 0, 0), source_serial=1.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        AtomRecord("CA", "C", (0, 0, 0), source_serial=b"1")  # type: ignore[arg-type]
+
+
+def test_structure_models_validate_residue_identity_and_record_alignment() -> None:
+    residue_id = ResidueId("structure", "1", "A", "10", "A", "ALA")
+    residue = ResidueRecord(
+        residue_id=residue_id,
+        numbering=ResidueNumbering("10", "42", "A"),
+        residue_name="ALA",
+        one_letter="A",
+    )
+    chain = ProteinChain(
+        "structure",
+        "1",
+        "A",
+        residues=[residue_id],  # type: ignore[arg-type]
+        residue_records=[residue],  # type: ignore[arg-type]
+    )
+    assert chain.residues == (residue_id,)
+    assert chain.residue_records == (residue,)
+    wrong_record = ResidueRecord(
+        residue_id=ResidueId("structure", "1", "A", "11", None, "GLY"),
+        numbering=ResidueNumbering("11", "43", None),
+        residue_name="GLY",
+        one_letter="G",
+    )
+    with pytest.raises(ValueError, match="residue IDs"):
+        ProteinChain("structure", "1", "A", residues=(residue_id,), residue_records=(wrong_record,))
+    with pytest.raises(ValueError, match="structure/model/chain"):
+        ProteinChain(
+            "other",
+            "1",
+            "A",
+            residues=(residue_id,),
+        )
+    with pytest.raises(ValueError, match="residue_name"):
+        ResidueRecord(
+            residue_id=residue_id,
+            numbering=ResidueNumbering("10", "42", "A"),
+            residue_name="GLY",
+            one_letter="G",
+        )
+    with pytest.raises(ValueError, match="numbering"):
+        ResidueRecord(
+            residue_id=residue_id,
+            numbering=ResidueNumbering("11", "42", "A"),
+            residue_name="ALA",
+            one_letter="A",
+        )
+
+
+def test_pdb_blank_chain_identifiers_are_present_and_not_none() -> None:
+    chain = ProteinChain("structure", "1", "", author_chain_id="", label_chain_id="")
+
+    assert chain.chain_id == ""
+    assert chain.author_chain_id == ""
+    assert chain.label_chain_id == ""
+
+
+def test_structure_metadata_rejects_non_json_like_values() -> None:
+    class MutableValue:
+        pass
+
+    with pytest.raises(TypeError):
+        ProteinChain("structure", "1", "A", metadata={"bad": MutableValue()})
+    with pytest.raises(ValueError):
+        ProteinChain("structure", "1", "A", metadata={"bad": float("nan")})
+    with pytest.raises(TypeError):
+        ProteinChain("structure", "1", "A", metadata={"bad": {"value"}})

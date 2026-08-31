@@ -1,5 +1,6 @@
 """Public domain model exports."""
 
+from .components import ComponentKind, StructureComponent
 from .correspondence import CorrespondenceStatus, ResidueCorrespondence
 from .multi import (
     AllVsAllAnalysis,
@@ -30,6 +31,7 @@ __all__ = [
     "AnalysisSelection",
     "AnalysisSettings",
     "AtomRecord",
+    "ComponentKind",
     "CorrespondenceStatus",
     "ComparisonMode",
     "MutationEvent",
@@ -47,5 +49,6 @@ __all__ = [
     "SequenceAlignmentSettings",
     "StructuralAlignmentSettings",
     "StructuralTransform",
+    "StructureComponent",
     "TargetAnalysis",
 ]

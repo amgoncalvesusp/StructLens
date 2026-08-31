@@ -126,3 +126,33 @@
   reported no known vulnerabilities; a filename-only secret-pattern scan found
   no matches. The global interpreter's unrelated `open-webui`/`onnxruntime`
   `pip check` mismatch is outside StructLens and is not part of the release env.
+- 2026-08-31 Task 3 (parser enrichment and component identity): RED tests first
+  covered bounded source capture, gzip expansion/truncation/trailing-data behavior,
+  raw versus logical hashes, immutable selections and retained components, parser
+  limits, multiple-model selection, altloc identity, PDB/mmCIF metadata, blank
+  chains, legacy wrapper compatibility, and replacement of the original path
+  after capture. GREEN added `SourceSnapshot`, typed parser contracts, strict
+  component/structure invariants, conservative versioned classification, and a
+  single snapshot-consuming normalization boundary.
+- 2026-08-31 Task 3 scientific semantics: the canonical protein view contains
+  polymer residues only, while every component in the selected model is retained
+  as evidence and records whether it was selected for analysis. PDB does not
+  fabricate label/entity/label-sequence identifiers; mmCIF preserves per-residue
+  author, label, entity, formal-charge, and source-atom identity. Unknown HETATM
+  and carbohydrates without CCD/connectivity evidence remain `other`; MSE remains
+  a modified polymer; and `AltlocPolicy.ALL` fails closed until conformer-aware
+  analyses exist. Legacy loaders still retain all models and non-water HETATM.
+- 2026-08-31 Task 3 review fixes: preflight now precedes both modern and legacy
+  parsing; duplicate/non-preservable PDB serials and duplicate mmCIF atom-site IDs
+  fail at the boundary; mmCIF row limits run before `MMCIF2Dict` materialization;
+  valid zero-padded PDB/mmCIF model and atom IDs share canonical lookup identities
+  while retaining raw mmCIF source IDs; absent mmCIF label chains remain absent;
+  blank chains remain distinct from missing chains; and analyzed author/label/entity
+  metadata is deduplicated without losing split label segments.
+- 2026-08-31 Task 3 gate: final independent code and scientific reviews reported
+  no remaining CRITICAL/HIGH blocker. Fresh output: `python -m pytest -q` reported
+  236 passed; Ruff passed; mypy reported success across 117 source files;
+  `git diff --check` passed. Combined branch coverage for the new/expanded Task 3
+  model and parsing modules was 81%. `pip-audit` resolved the declared runtime,
+  GUI, and chart dependency set with no known vulnerabilities, and the changed-file
+  secret-pattern scan found no secret-like assignments or private keys.
