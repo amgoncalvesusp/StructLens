@@ -234,3 +234,34 @@
   `tests/unit/core/pockets/test_models.py` and `test_radii.py` with
   `ModuleNotFoundError: No module named 'structlens.core.pockets'`, which is the
   expected RED starting point for Task 6 rather than a Task 5 regression.
+- 2026-08-31 Task 6 (pocket geometry primitives): RED started from the new
+  `tests/unit/core/pockets/` package with `ModuleNotFoundError` for
+  `structlens.core.pockets`. GREEN added `core/pockets/__init__.py`,
+  `models.py`, `radii.py`, and `geometry.py` with immutable
+  `PocketGeometrySettings`, canonical-hash `AlphaSphere` and `PocketCandidate`,
+  a conservative pocket-only Bondi-style radii table with an explicit selenium
+  extension, and a typed `tetrahedron_circumsphere()` result that distinguishes
+  malformed input (`ValueError`) from non-finite or degenerate simplices
+  (`Diagnostic` with no NaN payload). Added/expanded tests cover deterministic
+  identity under input reordering, residue and atom canonical ordering, invalid
+  settings/contracts, rigid-body and permutation invariance, explicit tolerance
+  handling for nearly degenerate tetrahedra, and rare linear-algebra failure
+  paths. `tests/unit/core/pockets/__init__.py` was added to namespace the new
+  tests and prevent basename collisions with existing `quality` and `reports`
+  test modules during root collection.
+- 2026-08-31 Task 6 gate: `python -m pytest tests/unit/core/pockets/test_models.py
+  tests/unit/core/pockets/test_geometry.py tests/unit/core/pockets/test_radii.py
+  --cov=src/structlens/core/pockets --cov-branch -q` reported 30 passed with
+  96% total coverage across the new package (`geometry.py` 92%,
+  `models.py` 99%, radii and package exports 100%). `python -m ruff check
+  src/structlens/core/pockets tests/unit/core/pockets` passed after import
+  normalization, `python -m mypy src/structlens/core/pockets` reported success,
+  and `git diff --check` remained clean apart from the repository's existing
+  LF→CRLF warnings. A fresh full-suite run on the shared worktree reported
+  `391 passed, 2 failed`; both failures are outside Task 6 and come from
+  concurrent uncommitted report-layer edits in
+  `src/structlens/core/reports/models.py` and related application/tests, where
+  default `AnalysisReport` availability no longer matches the two legacy tests
+  `tests/unit/application/test_report_service.py::test_pairwise_report_rejects_a_selection_with_multiple_protein_chains`
+  and `tests/unit/plugin/test_gui_model.py::test_report_controller_delivers_one_canonical_artifact_to_fake_widget`.
+  The new `core.pockets` package itself remained green in the same workspace.
