@@ -63,10 +63,10 @@ jobs:
             --collect-all structlens \
             --collect-data Bio \
             --collect-all freesasa \
-            --exclude-module PySide6 \
-            --hidden-import PyQt5.QtCore \
-            --hidden-import PyQt5.QtGui \
-            --hidden-import PyQt5.QtWidgets \
+            --exclude-module PyQt5 \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
             src/structlens/gui/main.py
           ./dist/structlens.exe --help
 
@@ -141,10 +141,10 @@ jobs:
             --collect-all structlens \
             --collect-data Bio \
             --collect-all freesasa \
-            --exclude-module PySide6 \
-            --hidden-import PyQt5.QtCore \
-            --hidden-import PyQt5.QtGui \
-            --hidden-import PyQt5.QtWidgets \
+            --exclude-module PyQt5 \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
             src/structlens/gui/main.py
           ./dist/structlens --help
 

@@ -17,6 +17,12 @@ MUSCLE_URLS = {
     "Windows": "https://github.com/rcedgar/muscle/releases/download/v5.3/muscle-win64.v5.3.exe",
     "Linux": "https://github.com/rcedgar/muscle/releases/download/v5.3/muscle-linux-x86.v5.3",
 }
+# MUSCLE is GPL-3. Redistributing the binary obliges us to ship its licence text
+# and the exact corresponding source, so both are fetched from the same pinned
+# tag as the executable. See docs/distribution-licensing.md.
+MUSCLE_LICENSE_URL = "https://raw.githubusercontent.com/rcedgar/muscle/v5.3/LICENSE"
+MUSCLE_SOURCE_URL = "https://github.com/rcedgar/muscle/archive/refs/tags/v5.3.tar.gz"
+MUSCLE_SOURCE_ARCHIVE = "muscle-5.3-source.tar.gz"
 
 
 def download(url: str, destination: Path) -> None:
@@ -24,7 +30,9 @@ def download(url: str, destination: Path) -> None:
     with urlopen(url, timeout=60) as response:  # noqa: S310 - pinned HTTPS URL above
         destination.write_bytes(response.read())
     digest = hashlib.sha256(destination.read_bytes()).hexdigest()
-    destination.with_suffix(destination.suffix + ".sha256").write_text(f"{digest}  {destination.name}\n", encoding="utf-8")
+    destination.with_suffix(destination.suffix + ".sha256").write_text(
+        f"{digest}  {destination.name}\n", encoding="utf-8"
+    )
 
 
 def main() -> int:
@@ -37,7 +45,12 @@ def main() -> int:
     suffix = "muscle.exe" if args.platform == "Windows" else "muscle"
     target = args.output / "muscle" / ("windows-x64" if args.platform == "Windows" else "linux-x64") / suffix
     download(MUSCLE_URLS[args.platform], target)
-    (args.output / "muscle" / "VERSION").write_text(MUSCLE_VERSION + "\n", encoding="utf-8")
+    muscle_root = args.output / "muscle"
+    (muscle_root / "VERSION").write_text(f"{MUSCLE_VERSION}\n", encoding="utf-8")
+    # Without these two files the artifact would redistribute a GPL-3 binary
+    # with neither its licence nor its corresponding source.
+    download(MUSCLE_LICENSE_URL, muscle_root / "LICENSE")
+    download(MUSCLE_SOURCE_URL, muscle_root / MUSCLE_SOURCE_ARCHIVE)
     return 0
 
 

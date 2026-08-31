@@ -12,6 +12,7 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
+    "scipy>=1.10",
     "biopython>=1.81",
     "openpyxl>=3.1",
     "Pillow>=12.3.0",
@@ -19,11 +20,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Default GUI binding for official artifacts. PySide6 is LGPL, so freezing it
+# into a distributed binary is covered by docs/distribution-licensing.md.
 gui = [
-    "PyQt5>=5.15.10,<5.16",
+    "PySide6>=6.7",
 ]
+# Kept as an alias so existing "[gui-pyside6]" invocations keep working.
 gui-pyside6 = [
     "PySide6>=6.7",
+]
+# Opt-in only. PyQt5 is GPL: choosing it makes the resulting combined work GPL,
+# so official StructLens artifacts never freeze it.
+gui-pyqt5 = [
+    "PyQt5>=5.15.10,<5.16",
 ]
 charts = [
     "matplotlib>=3.8,<4",
@@ -33,6 +42,7 @@ dev = [
     "types-openpyxl>=3.1",
     "pytest>=8.0",
     "pytest-cov>=4.1",
+    "hypothesis>=6.90",
     "ruff>=0.6",
 ]
 
@@ -57,6 +67,8 @@ structlens = [
     "resources/muscle/VERSION",
     "resources/muscle/LICENSE",
     "resources/muscle/CITATION.md",
+    # GPL-3 corresponding source must travel with the redistributed binary.
+    "resources/muscle/muscle-*-source.tar.gz",
     "resources/muscle/*/muscle",
     "resources/muscle/*/muscle.exe",
     "resources/muscle/*/*.sha256",
