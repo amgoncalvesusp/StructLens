@@ -79,16 +79,10 @@ class AnalysisService:
                 target_chain,
                 settings=_sequence_settings(settings),
             )
-            initial = self._mapper.build_correspondence(
-                reference_chain, target_chain, alignment
-            )
+            initial = self._mapper.build_correspondence(reference_chain, target_chain, alignment)
         _check_cancel(cancel_event)
-        sequence_metrics = calculate_sequence_metrics(
-            initial, reference_chain.sequence, target_chain.sequence
-        )
-        decision = _alignment_decision(
-            settings, sequence_metrics.identity, sequence_metrics.coverage
-        )
+        sequence_metrics = calculate_sequence_metrics(initial, reference_chain.sequence, target_chain.sequence)
+        decision = _alignment_decision(settings, sequence_metrics.identity, sequence_metrics.coverage)
         tm_score: float | None = None
         structural_result: Any | None = None
         provenance = {
@@ -96,15 +90,12 @@ class AnalysisService:
             "engine": "Biopython PairwiseAligner",
         }
         if settings.alignment_mode.value == "structure" or (
-            settings.alignment_mode.value == "auto"
-            and decision.startswith("structure-guided")
+            settings.alignment_mode.value == "auto" and decision.startswith("structure-guided")
         ):
             adapter = self._structural_adapter
             if adapter is None:
                 if not reference_chain.source_path or not target_chain.source_path:
-                    raise MappingError(
-                        "Structure-guided mapping requires source file paths and US-align"
-                    )
+                    raise MappingError("Structure-guided mapping requires source file paths and US-align")
                 from structlens.integrations.usalign.adapter import USAlignAdapter
 
                 adapter = USAlignAdapter(
@@ -117,9 +108,7 @@ class AnalysisService:
             structural_result = cast(Any, adapter).align(
                 reference_chain,
                 target_chain,
-                StructuralAlignmentSettings(
-                    executable=settings.usalign_executable or "USalign"
-                ),
+                StructuralAlignmentSettings(executable=settings.usalign_executable or "USalign"),
             )
             initial = list(structural_result.correspondences)
             tm_score = structural_result.tm_score
@@ -129,14 +118,10 @@ class AnalysisService:
                 "executable_version": structural_result.executable_version or "unknown",
                 **dict(getattr(structural_result, "metadata", {})),
             }
-            sequence_metrics = calculate_sequence_metrics(
-                initial, reference_chain.sequence, target_chain.sequence
-            )
+            sequence_metrics = calculate_sequence_metrics(initial, reference_chain.sequence, target_chain.sequence)
 
         _check_cancel(cancel_event)
-        geometrized, strict, refined, excluded = _calculate_geometry(
-            initial, reference_chain, target_chain, settings
-        )
+        geometrized, strict, refined, excluded = _calculate_geometry(initial, reference_chain, target_chain, settings)
         mutations = tuple(detect_mutations(geometrized))
         return AnalysisResult(
             reference_id=reference_chain.structure_id,
@@ -154,14 +139,13 @@ class AnalysisService:
             excluded_alignment_indices=tuple(excluded),
             tm_score=tm_score,
             provenance=provenance,
-            transform=_structural_transform(structural_result, provenance, settings),
+            transform=_structural_transform(structural_result, provenance, settings, superposition=strict),
         )
 
     def analyze_reference_vs_many(
         self,
         reference: ProteinStructure | ProteinChain,
-        targets: Mapping[str, ProteinStructure | ProteinChain]
-        | Sequence[ProteinStructure | ProteinChain],
+        targets: Mapping[str, ProteinStructure | ProteinChain] | Sequence[ProteinStructure | ProteinChain],
         settings: AnalysisSettings | None = None,
         *,
         reference_chain_id: str | None = None,
@@ -194,8 +178,7 @@ class AnalysisService:
 
     def analyze_all_vs_all(
         self,
-        structures: Mapping[str, ProteinStructure | ProteinChain]
-        | Sequence[ProteinStructure | ProteinChain],
+        structures: Mapping[str, ProteinStructure | ProteinChain] | Sequence[ProteinStructure | ProteinChain],
         settings: AnalysisSettings | None = None,
         *,
         chain_ids: Mapping[str, str] | None = None,
@@ -245,9 +228,7 @@ class AnalysisService:
                 name,
                 structure_ids,
                 values,
-                unit=("fraction" if name.startswith("sequence_") else "Å")
-                if name != "tm_score"
-                else "score",
+                unit=("fraction" if name.startswith("sequence_") else "Å") if name != "tm_score" else "score",
             )
             for name, values in metric_values.items()
         }
@@ -256,8 +237,7 @@ class AnalysisService:
     def analyze_multiple_structure_alignment(
         self,
         reference: ProteinStructure | ProteinChain,
-        targets: Mapping[str, ProteinStructure | ProteinChain]
-        | Sequence[ProteinStructure | ProteinChain],
+        targets: Mapping[str, ProteinStructure | ProteinChain] | Sequence[ProteinStructure | ProteinChain],
         settings: AnalysisSettings | None = None,
         *,
         reference_chain_id: str | None = None,
@@ -294,11 +274,7 @@ class AnalysisService:
             mapped = sum(residue is not None for residue in residues.values())
             total = len(many.target_ids) + 1
             variation_values = [value for value in deviations[index].values() if value is not None]
-            variability = (
-                float(np.std(np.asarray([0.0, *variation_values], dtype=float)))
-                if variation_values
-                else None
-            )
+            variability = float(np.std(np.asarray([0.0, *variation_values], dtype=float))) if variation_values else None
             reference_residue = reference_by_index.get(index)
             positions.append(
                 MultiStructurePosition(
@@ -354,9 +330,7 @@ def _select_chain(
 
 
 def _sequence_settings(settings: AnalysisSettings) -> SequenceAlignmentSettings:
-    return SequenceAlignmentSettings(
-        settings.substitution_matrix, settings.gap_open, settings.gap_extend
-    )
+    return SequenceAlignmentSettings(settings.substitution_matrix, settings.gap_open, settings.gap_extend)
 
 
 def _check_cancel(cancel_event: Event | None) -> None:
@@ -364,9 +338,7 @@ def _check_cancel(cancel_event: Event | None) -> None:
         raise AnalysisCancelledError("Comparison cancelled by the user")
 
 
-def _alignment_decision(
-    settings: AnalysisSettings, identity: float, coverage: float
-) -> str:
+def _alignment_decision(settings: AnalysisSettings, identity: float, coverage: float) -> str:
     mode = settings.alignment_mode.value
     if mode == "sequence":
         return f"sequence-guided (explicit mode; identity={identity:.3f}, coverage={coverage:.3f})"
@@ -374,10 +346,7 @@ def _alignment_decision(
         return "manual (explicit correspondences required)"
     if mode == "structure":
         return "structure-guided (explicit mode)"
-    if (
-        identity >= settings.minimum_sequence_identity
-        and coverage >= settings.minimum_sequence_coverage
-    ):
+    if identity >= settings.minimum_sequence_identity and coverage >= settings.minimum_sequence_coverage:
         return f"sequence-guided (AUTO: identity={identity:.3f} >= {settings.minimum_sequence_identity:.3f}, coverage={coverage:.3f} >= {settings.minimum_sequence_coverage:.3f})"
     return f"structure-guided (AUTO: identity={identity:.3f} or coverage={coverage:.3f} below thresholds)"
 
@@ -412,17 +381,11 @@ def _calculate_geometry(
             None,
         )
         target_ca = next(
-            (
-                atom.coordinate
-                for atom in target_record.atoms
-                if atom.name.upper() == "CA"
-            ),
+            (atom.coordinate for atom in target_record.atoms if atom.name.upper() == "CA"),
             None,
         )
         if ref_ca is not None and target_ca is not None:
-            pairs.append(
-                (item.alignment_index, np.asarray(ref_ca), np.asarray(target_ca))
-            )
+            pairs.append((item.alignment_index, np.asarray(ref_ca), np.asarray(target_ca)))
     if not pairs:
         return correspondences, None, None, []
     ref_coords = np.array([pair[1] for pair in pairs], dtype=float)
@@ -439,9 +402,7 @@ def _calculate_geometry(
             {
                 atom.name: tuple(
                     float(value)
-                    for value in apply_transform(
-                        np.asarray([atom.coordinate]), strict.rotation, strict.translation
-                    )[0]
+                    for value in apply_transform(np.asarray([atom.coordinate]), strict.rotation, strict.translation)[0]
                 )
                 for atom in transformed_target_record.atoms
             }
@@ -461,27 +422,17 @@ def _calculate_geometry(
         updated[alignment_index] = replace(
             item,
             ca_displacement_angstrom=ca_displacement(ref_coord, fitted[pair_index]),
-            backbone_rmsd_angstrom=(
-                residue_metrics.backbone_rmsd_angstrom if residue_metrics else None
-            ),
-            sidechain_rmsd_angstrom=(
-                residue_metrics.sidechain_rmsd_angstrom if residue_metrics else None
-            ),
-            all_heavy_atom_rmsd_angstrom=(
-                residue_metrics.all_heavy_atom_rmsd_angstrom if residue_metrics else None
-            ),
+            backbone_rmsd_angstrom=(residue_metrics.backbone_rmsd_angstrom if residue_metrics else None),
+            sidechain_rmsd_angstrom=(residue_metrics.sidechain_rmsd_angstrom if residue_metrics else None),
+            all_heavy_atom_rmsd_angstrom=(residue_metrics.all_heavy_atom_rmsd_angstrom if residue_metrics else None),
         )
     excluded: list[int] = []
     refined = strict
     if settings.refined_rmsd and len(pairs) >= 3:
         keep = np.ones(len(pairs), dtype=bool)
         for _ in range(settings.refinement_max_iterations):
-            candidate = superpose(
-                ref_coords[keep], target_coords[keep], residue_count=int(keep.sum())
-            )
-            candidate_fitted = apply_transform(
-                target_coords, candidate.rotation, candidate.translation
-            )
+            candidate = superpose(ref_coords[keep], target_coords[keep], residue_count=int(keep.sum()))
+            candidate_fitted = apply_transform(target_coords, candidate.rotation, candidate.translation)
             distances = np.linalg.norm(ref_coords - candidate_fitted, axis=1)
             new_keep = distances <= settings.refinement_cutoff_angstrom
             if new_keep.sum() < 1 or np.array_equal(new_keep, keep):
@@ -492,15 +443,12 @@ def _calculate_geometry(
             refined = candidate
         excluded = [pairs[index][0] for index, kept in enumerate(keep) if not kept]
         for alignment_index in excluded:
-            updated[alignment_index] = replace(
-                updated[alignment_index], is_outlier=True
-            )
+            updated[alignment_index] = replace(updated[alignment_index], is_outlier=True)
     return updated, strict, refined if settings.refined_rmsd else None, excluded
 
 
 def _target_items(
-    structures: Mapping[str, ProteinStructure | ProteinChain]
-    | Sequence[ProteinStructure | ProteinChain],
+    structures: Mapping[str, ProteinStructure | ProteinChain] | Sequence[ProteinStructure | ProteinChain],
 ) -> tuple[tuple[str, ProteinStructure | ProteinChain], ...]:
     if isinstance(structures, Mapping):
         values = tuple((str(identifier), value) for identifier, value in structures.items())
@@ -550,18 +498,38 @@ def _structural_transform(
     structural_result: Any | None,
     provenance: Mapping[str, str],
     settings: AnalysisSettings,
+    *,
+    superposition: SuperpositionResult | None = None,
 ) -> StructuralTransform | None:
-    if settings.alignment_mode.value not in {"structure", "auto"}:
+    """Return the transform that produced this result's structural metrics.
+
+    US-align supplies its own transform when it drove the mapping. Every other
+    mode is superposed locally by :func:`_calculate_geometry`, and that Kabsch
+    fit is just as authoritative: it is the transform the reported RMSDs and
+    per-residue displacements were measured under. Downstream consumers such as
+    site metrics need it to express a global-frame measurement at all, so a
+    sequence or manual comparison must not report it as unavailable.
+    """
+
+    if settings.alignment_mode.value in {"structure", "auto"}:
+        if provenance.get("mapping_source") == "US-align" and structural_result is not None:
+            transform = getattr(structural_result, "transform", None)
+            if transform is not None:
+                return StructuralTransform(
+                    tuple(tuple(row) for row in transform.rotation),
+                    tuple(transform.translation),
+                )
+    if superposition is None:
         return None
-    if provenance.get("mapping_source") != "US-align" or structural_result is None:
-        return None
-    transform = getattr(structural_result, "transform", None)
-    if transform is None:
-        return None
-    return StructuralTransform(
-        tuple(tuple(row) for row in transform.rotation),
-        tuple(transform.translation),
-    )
+    rotation_rows = tuple(_triple(row) for row in superposition.rotation)
+    return StructuralTransform(rotation_rows, _triple(superposition.translation))
+
+
+def _triple(values: Any) -> tuple[float, float, float]:
+    """Narrow a length-3 coordinate row for the strict transform model."""
+
+    first, second, third = (float(value) for value in values)
+    return first, second, third
 
 
 __all__ = ["AnalysisService"]

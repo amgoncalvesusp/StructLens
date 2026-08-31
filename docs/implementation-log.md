@@ -73,3 +73,30 @@
   skips; `python -m pytest tests/unit/core/geometry tests/unit/application -q`
   reported 37 passed; Ruff passed over the touched paths; mypy reported success;
   `git diff --check` was clean.
+- 2026-08-30 Task 1 remainder: two RED tests were added to
+  `tests/unit/application/test_analysis_service.py` and confirmed failing before
+  any production edit. (a) `AnalysisResult.mutation_count` counted every event
+  whose kind was not "conserved", so a non-standard residue such as MSE — which
+  has no canonical one-letter code and is therefore neither conserved nor a
+  substitution — was counted as a change. A structure containing MSE compared
+  against itself reported `mutation_count == 1`. The property now excludes
+  "nonstandard" while those positions remain in `mutations` as evidence, so the
+  Residues view still shows them. (b) `_structural_transform` returned a
+  transform only when US-align drove the mapping, so every sequence-guided and
+  manual comparison stored `transform=None`. That mattered more after the
+  earlier Task 1 change gated global-frame site RMSD on an authoritative
+  transform: without it, sequence comparisons could never report a global-frame
+  site measurement at all. `_calculate_geometry` already computes a Kabsch fit
+  through `superpose()` and reports every RMSD and per-residue displacement
+  under it, so that fit is now stored as the authoritative transform for the
+  non-US-align paths. `plugin/gui/qt_panel.py` already forwards
+  `result.transform` into `calculate_site_metrics`, so the Sites view inherits
+  the fix with no GUI change.
+- 2026-08-30 Task 1 end-to-end check: an MSE-containing structure compared with
+  itself now reports `mutation_count == 0`, still flags the MSE position as
+  non-standard, and stores an identity transform with `det(rotation) == 1.0`.
+- 2026-08-30 Task 1 gate output: `python -m pytest -q` reported 143 passed with
+  no skips; the plan's focused selection reported 35 passed and
+  `tests/unit/core/geometry tests/unit/application` reported 39 passed;
+  `python -m ruff check .` passed; `python -m mypy src` reported success across
+  109 source files; `git diff --check` was clean.

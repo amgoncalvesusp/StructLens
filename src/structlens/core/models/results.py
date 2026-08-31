@@ -38,7 +38,15 @@ class AnalysisResult:
 
     @property
     def mutation_count(self) -> int:
-        return sum(event.kind.value != "conserved" for event in self.mutations)
+        """Count sequence changes only.
+
+        A non-standard residue such as MSE has no canonical one-letter code, so
+        it is neither conserved nor a substitution. Counting it as a mutation
+        made a structure compared against itself report a change it does not
+        have. Those positions stay in ``mutations`` as non-standard evidence.
+        """
+
+        return sum(event.kind.value not in {"conserved", "nonstandard"} for event in self.mutations)
 
     @property
     def insertion_count(self) -> int:
