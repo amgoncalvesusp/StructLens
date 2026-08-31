@@ -336,3 +336,37 @@
   LF-to-CRLF notices. Fresh independent Terra scientific/integration and
   code/security re-reviews found no remaining CRITICAL/HIGH issue. The next
   accepted item is Task 8, pocket free-volume measurement.
+- 2026-08-31 Task 8 (pocket free-volume measurement): GREEN now includes
+  `src/structlens/core/pockets/volume.py`,
+  `src/structlens/core/pockets/volume_models.py`,
+  `src/structlens/application/pocket_service.py`, and the corresponding focused
+  tests. The service measures bounded coarse/fine free volume for one
+  `PocketCandidate` using only the selected primary polymer scope plus
+  explicitly retained ligand/ion/other components under the chosen
+  `component_exclusion_policy`, and binds selection/candidate/sphere settings
+  into deterministic method provenance. Late hardening added a regression for
+  retained ligand altloc selection and two contract fixes in
+  `volume_models.py`: `PocketVolumeResult` now rejects a short
+  `grid_origin_xyz` with a clean `ValueError` instead of leaking `IndexError`,
+  and it rejects non-`PocketVolumeSettings` `settings` objects instead of
+  silently accepting invalid state.
+- 2026-08-31 Task 8 gate: `python -m pytest tests/unit/core/pockets/test_volume.py
+  tests/unit/application/test_pocket_volume_service.py --cov=src/structlens/core/pockets
+  --cov-branch --cov-report=term-missing -q` reported 54 passed; within the
+  touched scientific modules `volume.py` reached 90% branch-aware coverage and
+  `volume_models.py` reached 96%. `python -m pytest -q` then reported
+  `516 passed in 6.59s`. `python -m ruff check .` passed. `python -m mypy src`
+  passed across 144 source files. `git diff --check` remained clean apart from
+  the repository's existing LF-to-CRLF warnings on
+  `src/structlens/application/pocket_service.py` and
+  `src/structlens/core/pockets/__init__.py`.
+- 2026-08-31 Task 8 dependency audit note: `python -m pip_audit` on the shared
+  interpreter reported 232 known vulnerabilities in 39 installed packages.
+  The output is not attributable to the new Task 8 code: many flagged packages
+  (for example `aiohttp`, `anthropic`, `chromadb`, `open-webui`, `torch`) are
+  not StructLens dependencies, while the one directly relevant project
+  dependency in the report was `Pillow 12.1.1`, and StructLens already declares
+  `Pillow>=12.3.0` in `pyproject.toml`. Treat that audit result as a local
+  environment/release-preparation follow-up for Task 17/18 rather than a Task 8
+  implementation blocker. The next accepted item is Task 9, ligand support and
+  focused pockets.

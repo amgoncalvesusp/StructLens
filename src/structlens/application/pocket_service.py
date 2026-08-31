@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib.metadata import version as package_version
 from threading import Event
 from types import MappingProxyType
@@ -18,12 +18,15 @@ from typing import cast
 
 from structlens.core.errors import AnalysisCancelledError
 from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
-from structlens.core.models import AtomRecord, ProteinChain, ResidueId
-from structlens.core.parsing import ParsedStructure
+from structlens.core.models import AtomRecord, ComponentKind, ProteinChain, ResidueId, StructureComponent
+from structlens.core.parsing import AltlocPolicy, ParsedStructure
 from structlens.core.pockets import (
     POCKET_RADII_VERSION,
     PocketCandidate,
     PocketDetectionSettings,
+    PocketVolumeResult,
+    PocketVolumeSettings,
+    measure_pocket_volume,
     vdw_radius_angstrom,
 )
 from structlens.core.pockets.clustering import cluster_alpha_spheres
@@ -41,6 +44,11 @@ _NUMERICAL_FAILURE_CODES = frozenset(
         "pocket.detect.resource_limit",
         "pocket.detect.qhull_failure",
     }
+)
+_VOLUME_METHOD_ID = "structlens.pocket.volume"
+_VOLUME_METHOD_VERSION = "0.4.0"
+_VOLUME_COMPONENT_KINDS = frozenset(
+    {ComponentKind.LIGAND, ComponentKind.ION, ComponentKind.OTHER}
 )
 
 
@@ -210,6 +218,46 @@ class StructurePocketService:
             provenance=provenance,
         )
 
+    def measure_volume(
+        self,
+        parsed: ParsedStructure,
+        candidate: PocketCandidate | None,
+        settings: PocketVolumeSettings | None = None,
+    ) -> PocketVolumeResult:
+        """Measure one candidate using the parser's exact selected scope.
+
+        ``ParsedStructure`` already contains primary alternate-location atoms
+        in its residue records.  Retained non-polymer components are passed
+        separately so the core measurement can apply its explicit occupancy
+        policy without broadening the selected model or chain scope.
+        """
+
+        if not isinstance(parsed, ParsedStructure):
+            raise TypeError("parsed must be a ParsedStructure")
+        run_settings = settings if settings is not None else PocketVolumeSettings()
+        if not isinstance(run_settings, PocketVolumeSettings):
+            raise TypeError("settings must be PocketVolumeSettings or None")
+        protein_atoms = _selected_volume_polymer_atoms(parsed)
+        retained_components = (
+            _selected_volume_components(parsed)
+            if run_settings.component_exclusion_policy == "unoccupied"
+            else ()
+        )
+        measured = measure_pocket_volume(
+            candidate,
+            protein_atoms=protein_atoms,
+            retained_components=retained_components,
+            settings=run_settings,
+        )
+        provenance = _build_volume_provenance(
+            parsed,
+            candidate,
+            run_settings,
+            polymer_atom_count=len(protein_atoms),
+            component_ids=tuple(component.component_id for component in retained_components),
+        )
+        return replace(measured, provenance=provenance)
+
 
 def detect_blind_pockets(
     parsed: ParsedStructure,
@@ -224,6 +272,97 @@ def detect_blind_pockets(
         parsed,
         progress_callback=progress_callback,
         cancel_event=cancel_event,
+    )
+
+
+def _selected_volume_polymer_atoms(parsed: ParsedStructure) -> tuple[AtomRecord, ...]:
+    """Return primary heavy polymer atoms in the selected model/chains."""
+
+    atoms = tuple(
+        atom
+        for chain in parsed.protein_structure.chains
+        if _chain_is_selected(chain, parsed)
+        for record in chain.residue_records
+        for atom in record.atoms
+        if atom.element.strip().upper() not in _HYDROGEN_ELEMENTS
+    )
+    return tuple(
+        sorted(
+            atoms,
+            key=lambda atom: (
+                atom.source_atom_id or "",
+                atom.name,
+                atom.coordinate,
+            ),
+        )
+    )
+
+
+def _selected_volume_components(parsed: ParsedStructure) -> tuple[StructureComponent, ...]:
+    """Return selected retained ligand/ion/other components in scope."""
+
+    components = tuple(
+        component
+        for component in parsed.components
+        if component.kind in _VOLUME_COMPONENT_KINDS
+        and component.metadata.get("selected_for_analysis") is True
+        and _component_is_selected(component, parsed)
+    )
+    return tuple(
+        replace(
+            component,
+            atoms=_primary_component_atoms(component.atoms, parsed.selection.altloc_policy),
+        )
+        for component in sorted(components, key=lambda component: component.component_id)
+    )
+
+
+def _primary_component_atoms(
+    atoms: tuple[AtomRecord, ...],
+    policy: AltlocPolicy,
+) -> tuple[AtomRecord, ...]:
+    """Apply the parser's primary-altloc policy to retained component atoms."""
+
+    if policy is AltlocPolicy.ALL:
+        raise ValueError("altloc policy 'all' requires conformer-aware pocket-volume analysis")
+    grouped: dict[str, list[AtomRecord]] = {}
+    for atom in atoms:
+        grouped.setdefault(atom.name, []).append(atom)
+    selected: list[AtomRecord] = []
+    for choices in grouped.values():
+        if len(choices) == 1 or not any(atom.altloc for atom in choices):
+            selected.extend(choices)
+        elif policy is AltlocPolicy.FIRST:
+            selected.append(choices[0])
+        else:
+            selected.append(min(choices, key=_alternate_location_sort_key))
+    return tuple(selected)
+
+
+def _alternate_location_sort_key(atom: AtomRecord) -> tuple[float, int, str]:
+    """Match the deterministic highest-occupancy parser selection order."""
+
+    occupancy = atom.occupancy
+    altloc = atom.altloc or ""
+    return (-(occupancy if occupancy is not None else -1.0), 0 if not altloc else 1, altloc)
+
+
+def _component_is_selected(component: StructureComponent, parsed: ParsedStructure) -> bool:
+    """Match a retained component to the exact parser model/chain selection."""
+
+    if component.model_id != parsed.selection.model_id:
+        return False
+    locators = parsed.selection.chain_locators
+    if not locators:
+        return True
+    author_chain_id = component.author_chain_id
+    label_chain_id = component.label_chain_id
+    entity_id = component.entity_id
+    return any(
+        (locator.author_chain_id is None or locator.author_chain_id == author_chain_id)
+        and (locator.label_chain_id is None or locator.label_chain_id == label_chain_id)
+        and (locator.entity_id is None or locator.entity_id == entity_id)
+        for locator in locators
     )
 
 
@@ -368,6 +507,80 @@ def _build_provenance(
             "logical_content": parsed.selection.content_id,
         },
         analyzed_representation=parsed.selection.assembly_scope.value,
+    )
+
+
+def _build_volume_provenance(
+    parsed: ParsedStructure,
+    candidate: PocketCandidate | None,
+    settings: PocketVolumeSettings,
+    *,
+    polymer_atom_count: int,
+    component_ids: tuple[str, ...],
+) -> MethodProvenance:
+    """Build deterministic provenance for a bounded volume measurement."""
+
+    settings_json = settings.to_json()
+    selection = parsed.selection
+    selection_details = {
+        "selection_id": selection.selection_id,
+        "format": selection.format.value,
+        "model_id": selection.model_id,
+        "author_chain_ids": selection.author_chain_ids,
+        "label_chain_ids": selection.label_chain_ids,
+        "chain_locators": tuple(
+            {
+                "author_chain_id": locator.author_chain_id,
+                "label_chain_id": locator.label_chain_id,
+                "entity_id": locator.entity_id,
+            }
+            for locator in selection.chain_locators
+        ),
+        "altloc_policy": selection.altloc_policy.value,
+        "assembly_scope": selection.assembly_scope.value,
+    }
+    parameters: dict[str, object] = {
+        **settings_json,
+        "selection_id": selection.selection_id,
+        "selection": selection_details,
+        "model_id": selection.model_id,
+        "author_chain_ids": selection.author_chain_ids,
+        "label_chain_ids": selection.label_chain_ids,
+        "altloc_policy": selection.altloc_policy.value,
+        "assembly_scope": selection.assembly_scope.value,
+        "atom_scope": "selected_primary_polymer_heavy_atoms",
+        "component_scope": "selected_retained_ligand_ion_other_components",
+        "polymer_atom_count": polymer_atom_count,
+        "component_ids": component_ids,
+        "candidate_id": candidate.candidate_id if candidate is not None else None,
+        "sphere_ids": (
+            tuple(sphere.sphere_id for sphere in candidate.alpha_spheres)
+            if candidate is not None
+            else ()
+        ),
+    }
+    units = {
+        "volume": "angstrom^3",
+        "length": "angstrom",
+        "coarse_grid_spacing_angstrom": "angstrom",
+        "fine_grid_spacing_angstrom": "angstrom",
+        "boundary_margin_angstrom": "angstrom",
+    }
+    return MethodProvenance(
+        method_id=_VOLUME_METHOD_ID,
+        method_version=_VOLUME_METHOD_VERSION,
+        parameters=cast(Mapping[str, FrozenJSON], parameters),
+        units=units,
+        backend_versions={
+            "numpy": package_version("numpy"),
+            "scipy": package_version("scipy"),
+            "pocket_radii": POCKET_RADII_VERSION,
+        },
+        input_hashes={
+            "raw_source": parsed.raw_source_hash,
+            "logical_content": selection.content_id,
+        },
+        analyzed_representation=selection.assembly_scope.value,
     )
 
 
