@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from structlens.core.pockets import (
     POCKET_RADII_VERSION,
     POCKET_VDW_RADII_ANGSTROM,

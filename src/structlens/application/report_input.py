@@ -8,9 +8,10 @@ analysis or access application services.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from structlens.application.dto import AnalysisReportRequest
-from structlens.core.evidence import Diagnostic, DiagnosticSeverity
+from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
 from structlens.core.models import ProteinChain, ResidueId
 from structlens.core.parsing import InputSelection, ParsedStructure, SourceSnapshot
 from structlens.core.quality import StructureQualityReport
@@ -63,6 +64,28 @@ def selection_diagnostics(
                 )
             )
     return tuple(diagnostics)
+
+
+def apply_selection_diagnostics(
+    reference: StructureQualityReport,
+    target: StructureQualityReport,
+    diagnostics: Sequence[Diagnostic],
+) -> tuple[StructureQualityReport, StructureQualityReport]:
+    """Project invalid pairwise selections into the corresponding QC reports."""
+
+    updated: list[StructureQualityReport] = []
+    for role, report in (("reference", reference), ("target", target)):
+        role_diagnostics = tuple(
+            item for item in diagnostics if item.code.startswith(f"report.input.{role}.")
+        )
+        if role_diagnostics and report.availability is Availability.AVAILABLE:
+            report = replace(
+                report,
+                availability=Availability.INVALID_INPUT,
+                diagnostics=report.diagnostics + role_diagnostics,
+            )
+        updated.append(report)
+    return updated[0], updated[1]
 
 
 def single_chain(parsed: ParsedStructure) -> ProteinChain:
@@ -151,6 +174,7 @@ def canonical_manual_pairs(
 
 
 __all__ = [
+    "apply_selection_diagnostics",
     "canonical_manual_pairs",
     "canonical_optional_residue_id",
     "canonical_residue_id",

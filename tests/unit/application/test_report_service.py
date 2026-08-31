@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -10,10 +11,18 @@ from structlens.application.report_service import ReportService
 from structlens.application.visualization_service import VisualizationService
 from structlens.core.evidence import Availability
 from structlens.core.interactions import InteractionThresholds
-from structlens.core.models import AlignmentMode, AnalysisSettings, ResidueId
+from structlens.core.models import (
+    AlignmentMode,
+    AnalysisSettings,
+    CorrespondenceStatus,
+    ResidueCorrespondence,
+    ResidueId,
+)
 from structlens.core.msa import MSASettings
 from structlens.core.parsing import InputSelection, StructureFormat, capture_snapshot, load_structure_evidence
 from structlens.core.sites import SiteDefinition, SiteDefinitionMode
+from structlens.integrations.usalign.adapter import USAlignAlignmentResult
+from structlens.integrations.usalign.parser import USAlignTransform
 from structlens.plugin.visualization.renderer import VisualizationState
 
 _FIXTURES = Path(__file__).parents[2] / "fixtures" / "parsing"
@@ -390,6 +399,80 @@ def test_manual_mapping_runs_through_the_same_canonical_report_path(tmp_path: Pa
     assert report.analysis is not None
     assert len(report.analysis.correspondences) == 1
     assert report.provenance.parameters["manual_pairs"]
+
+
+def test_structural_analysis_receives_exact_owned_snapshot_files_and_cleans_them_up(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    captured_paths: dict[str, Path] = {}
+
+    class CapturingStructuralAdapter:
+        def align(self, reference: object, target: object, settings: object) -> USAlignAlignmentResult:
+            reference_path = Path(reference.source_path)  # type: ignore[attr-defined]
+            target_path = Path(target.source_path)  # type: ignore[attr-defined]
+            captured_paths.update(reference=reference_path, target=target_path)
+            assert reference_path.exists()
+            assert target_path.exists()
+            assert reference_path.read_bytes() == request.reference_snapshot.decompressed_bytes
+            assert target_path.read_bytes() == request.target_snapshot.decompressed_bytes
+            assert hashlib.sha256(reference_path.read_bytes()).hexdigest() == request.reference_snapshot.content_id
+            assert hashlib.sha256(target_path.read_bytes()).hexdigest() == request.target_snapshot.content_id
+            correspondences = tuple(
+                ResidueCorrespondence(
+                    alignment_index=index,
+                    reference=reference.residue_records[index].residue_id,  # type: ignore[attr-defined]
+                    target=target.residue_records[index].residue_id,  # type: ignore[attr-defined]
+                    reference_one_letter=reference.residue_records[index].one_letter,  # type: ignore[attr-defined]
+                    target_one_letter=target.residue_records[index].one_letter,  # type: ignore[attr-defined]
+                    status=CorrespondenceStatus.CONSERVED,
+                    mapping_source="US-align",
+                )
+                for index in range(len(reference.residue_records))  # type: ignore[attr-defined]
+            )
+            return USAlignAlignmentResult(
+                correspondences=correspondences,
+                tm_score=0.9,
+                transform=USAlignTransform(
+                    translation=(0.0, 0.0, 0.0),
+                    rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                ),
+                executable_version="test",
+                metadata={},
+            )
+
+    report = ReportService(analysis_service=AnalysisService(CapturingStructuralAdapter())).analyze(
+        AnalysisReportRequest(
+            request.reference_snapshot,
+            request.target_snapshot,
+            request.reference_selection,
+            request.target_selection,
+            analysis_settings=AnalysisSettings(alignment_mode=AlignmentMode.STRUCTURE),
+        )
+    )
+
+    assert report.availability.analysis is Availability.AVAILABLE
+    assert captured_paths
+    assert all(not path.exists() for path in captured_paths.values())
+    serialized = report.canonical_json_bytes()
+    assert all(str(path).encode() not in serialized for path in captured_paths.values())
+
+
+def test_quality_runner_failure_is_contained_before_downstream_analysis(tmp_path: Path) -> None:
+    class FailingQuality:
+        def analyze(self, parsed: object) -> object:
+            raise RuntimeError("quality runner failed")
+
+    class ForbiddenAnalysis:
+        def analyze(self, *_: object, **__: object) -> object:
+            raise AssertionError("analysis must not run after a QC runner failure")
+
+    report = ReportService(quality_service=FailingQuality(), analysis_service=ForbiddenAnalysis()).analyze(
+        _request(tmp_path)
+    )
+
+    assert report.availability.input_quality is Availability.NUMERICAL_FAILURE
+    assert report.availability.analysis is Availability.NUMERICAL_FAILURE
+    assert report.input_quality.reference.availability is Availability.NUMERICAL_FAILURE
+    assert any(item.code == "report.input.reference.quality.failed" for item in report.diagnostics)
 
 
 def _two_chain_pdb() -> bytes:

@@ -476,11 +476,19 @@ class AnalysisReport:
                 raise ValueError(f"{name} availability is available but its typed payload is absent")
             if state is not Availability.AVAILABLE and present:
                 raise ValueError(f"{name} availability is {state.value} but its typed payload is present")
-        if self.availability.input_quality is Availability.AVAILABLE and (
-            self.input_quality.reference.availability is not Availability.AVAILABLE
-            or self.input_quality.target.availability is not Availability.AVAILABLE
-        ):
+        vector_state = self.availability.displacement_vectors
+        if self.displacement_vectors and vector_state is not Availability.AVAILABLE:
+            raise ValueError(
+                f"displacement_vectors availability is {vector_state.value} but its typed payload is present"
+            )
+        input_quality_available = (
+            self.input_quality.reference.availability is Availability.AVAILABLE
+            and self.input_quality.target.availability is Availability.AVAILABLE
+        )
+        if self.availability.input_quality is Availability.AVAILABLE and not input_quality_available:
             raise ValueError("input_quality availability is available but an input quality report is unavailable")
+        if input_quality_available and self.availability.input_quality is not Availability.AVAILABLE:
+            raise ValueError("input_quality availability is not available but both input quality reports are available")
 
     def _payload(self, *, include_report_id: bool) -> dict[str, JSONValue]:
         interactions: JSONValue

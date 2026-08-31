@@ -12,13 +12,17 @@ from structlens.core.models import (
     AnalysisResult,
     AnalysisSettings,
     AtomRecord,
+    CorrespondenceStatus,
     ProteinChain,
     ProteinStructure,
+    ResidueCorrespondence,
     ResidueId,
     ResidueNumbering,
     ResidueRecord,
 )
 from structlens.core.provenance import MethodProvenance
+from structlens.integrations.usalign.adapter import USAlignAlignmentResult
+from structlens.integrations.usalign.parser import USAlignTransform
 
 
 def _structure(structure_id: str, offset: float = 0.0) -> ProteinStructure:
@@ -195,3 +199,63 @@ def test_sequence_comparison_stores_the_authoritative_transform() -> None:
     # the reference, not an unrelated or identity placeholder.
     fitted = target_ca @ rotation + translation
     assert np.allclose(fitted, reference_ca, atol=1e-6)
+
+
+class _StructuralAdapter:
+    """Return a deliberately different native transform for the regression."""
+
+    def align(
+        self,
+        reference: ProteinChain,
+        target: ProteinChain,
+        settings: object,
+    ) -> USAlignAlignmentResult:
+        correspondences = tuple(
+            ResidueCorrespondence(
+                alignment_index=index,
+                reference=reference.residue_records[index].residue_id,
+                target=target.residue_records[index].residue_id,
+                reference_one_letter=reference.residue_records[index].one_letter,
+                target_one_letter=target.residue_records[index].one_letter,
+                status=CorrespondenceStatus.CONSERVED,
+                mapping_source="US-align",
+            )
+            for index in range(len(reference.residue_records))
+        )
+        return USAlignAlignmentResult(
+            correspondences=correspondences,
+            tm_score=0.9,
+            transform=USAlignTransform(
+                translation=(91.0, -17.0, 4.0),
+                rotation=((0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+            ),
+            executable_version="test",
+            metadata={"backend_marker": "preserve-me"},
+        )
+
+
+def test_structural_adapter_result_uses_strict_kabsch_transform() -> None:
+    reference = _structure("ref")
+    target = _structure("target", offset=4.0)
+    result = AnalysisService(_StructuralAdapter()).analyze(
+        reference,
+        target,
+        AnalysisSettings(alignment_mode=AlignmentMode.STRUCTURE),
+    )
+
+    assert result.provenance["backend_marker"] == "preserve-me"
+    assert result.transform is not None
+    rotation = np.asarray(result.transform.rotation, dtype=float)
+    translation = np.asarray(result.transform.translation, dtype=float)
+    reference_ca = np.asarray(
+        [next(a.coordinate for a in r.atoms if a.name == "CA") for r in reference.chains[0].residue_records],
+        dtype=float,
+    )
+    target_ca = np.asarray(
+        [next(a.coordinate for a in r.atoms if a.name == "CA") for r in target.chains[0].residue_records],
+        dtype=float,
+    )
+
+    # The native US-align matrix above is intentionally wrong.  The result
+    # must carry the strict Kabsch fit used by the reported RMSD instead.
+    assert np.allclose(target_ca @ rotation + translation, reference_ca, atol=1e-6)

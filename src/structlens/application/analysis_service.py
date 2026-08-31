@@ -504,22 +504,13 @@ def _structural_transform(
 ) -> StructuralTransform | None:
     """Return the transform that produced this result's structural metrics.
 
-    US-align supplies its own transform when it drove the mapping. Every other
-    mode is superposed locally by :func:`_calculate_geometry`, and that Kabsch
-    fit is just as authoritative: it is the transform the reported RMSDs and
-    per-residue displacements were measured under. Downstream consumers such as
-    site metrics need it to express a global-frame measurement at all, so a
-    sequence or manual comparison must not report it as unavailable.
+    ``_calculate_geometry`` computes RMSD and displacement values using a
+    strict Kabsch fit over the final correspondences. That fit is authoritative
+    for every alignment mode, including US-align mode. The native US-align
+    matrix is retained only as backend provenance because its convention and
+    reference frame are not the measurement contract used by StructLens.
     """
 
-    if settings.alignment_mode.value in {"structure", "auto"}:
-        if provenance.get("mapping_source") == "US-align" and structural_result is not None:
-            transform = getattr(structural_result, "transform", None)
-            if transform is not None:
-                return StructuralTransform(
-                    tuple(tuple(row) for row in transform.rotation),
-                    tuple(transform.translation),
-                )
     if superposition is None:
         return None
     rotation_rows = tuple(_triple(row) for row in superposition.rotation)

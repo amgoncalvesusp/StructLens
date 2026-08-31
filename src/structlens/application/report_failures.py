@@ -17,15 +17,21 @@ def invalid_input_report(
     provenance: MethodProvenance,
     diagnostics: tuple[Diagnostic, ...],
 ) -> AnalysisReport:
+    blocked_state = (
+        Availability.NUMERICAL_FAILURE
+        if Availability.NUMERICAL_FAILURE
+        in {input_quality.reference.availability, input_quality.target.availability}
+        else Availability.INVALID_INPUT
+    )
     state = SectionAvailability(
-        input_quality=Availability.INVALID_INPUT,
-        analysis=Availability.INVALID_INPUT,
-        msa=Availability.INVALID_INPUT,
-        interactions=Availability.INVALID_INPUT,
-        sites=Availability.INVALID_INPUT,
-        distance_map=Availability.INVALID_INPUT,
-        displacement_vectors=Availability.INVALID_INPUT,
-        evidence_cards=Availability.INVALID_INPUT,
+        input_quality=blocked_state,
+        analysis=blocked_state,
+        msa=blocked_state,
+        interactions=blocked_state,
+        sites=blocked_state,
+        distance_map=blocked_state,
+        displacement_vectors=blocked_state,
+        evidence_cards=blocked_state,
     )
     return AnalysisReport(
         request.reference_selection,

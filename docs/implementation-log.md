@@ -265,3 +265,25 @@
   `tests/unit/application/test_report_service.py::test_pairwise_report_rejects_a_selection_with_multiple_protein_chains`
   and `tests/unit/plugin/test_gui_model.py::test_report_controller_delivers_one_canonical_artifact_to_fake_widget`.
   The new `core.pockets` package itself remained green in the same workspace.
+- 2026-08-31 Task 5/6 hardening after Task 6: closed the residual integration
+  gap between canonical reports and the new pocket-ready branch. The report path
+  now materializes exact `SourceSnapshot` bytes into private short-lived files
+  only for backend adapters that still require filesystem paths, then removes
+  them before serialization so no ephemeral path leaks into report identity.
+  Pairwise selection diagnostics are projected back into the per-input QC reports,
+  QC-runner failures are contained as `numerical_failure` without entering
+  downstream analysis, evidence cards mark structure as unavailable when no
+  authoritative displacement exists, ligand residue-name aliases are exposed only
+  when unambiguous, and `AnalysisResult.transform` now always stores the strict
+  Kabsch fit used by StructLens metrics rather than an arbitrary backend-native
+  matrix. `AnalysisReport` also rejects incoherent input-quality/vector
+  availability states explicitly. Fresh gate output:
+  `python -m pytest tests/unit/application/test_report_service.py tests/unit/plugin/test_gui_model.py tests/unit/core/reports/test_models.py tests/unit/application/test_report_evidence.py tests/unit/application/test_analysis_service.py -q`
+  reported 65 passed; focused `coverage run --branch -m pytest -p no:cov ...`
+  plus `coverage report` measured `report_service.py` at 93%,
+  `report_materialization.py` at 100%, `report_evidence.py` at 95%,
+  `report_input.py` at 96%, `report_failures.py` at 100%, and
+  `core/reports/models.py` at 94%; `python -m ruff check ...` passed;
+  `python -m mypy src` reported success across 139 source files;
+  `python -m pytest -q` reported 393 passed; and `python -m pip_audit .`
+  reported no known vulnerabilities.

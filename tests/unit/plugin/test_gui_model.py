@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from structlens.core.evidence import Availability
 from structlens.core.parsing import InputSelection, StructureFormat
 from structlens.core.quality import StructureQualityReport
-from structlens.core.reports import AnalysisReport, InputQualityBundle
+from structlens.core.reports import AnalysisReport, InputQualityBundle, SectionAvailability
 from structlens.plugin.gui.main_panel import (
     GUI_SECTIONS,
     WORKFLOW_HELP,
@@ -60,6 +60,7 @@ def test_report_controller_delivers_one_canonical_artifact_to_fake_widget() -> N
             StructureQualityReport(Availability.AVAILABLE),
             StructureQualityReport(Availability.AVAILABLE),
         ),
+        availability=SectionAvailability(input_quality=Availability.AVAILABLE),
     )
 
     class Service:

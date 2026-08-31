@@ -31,20 +31,19 @@ from structlens.core.sites import SiteDefinition, SiteMetrics
 
 
 def reference_ligand_atoms(reference: ParsedStructure) -> dict[str, Sequence[AtomRecord]]:
-    """Index ligand components by component ID and residue name."""
+    """Index ligands by exact ID and only unambiguous residue-name aliases."""
 
+    ligands = tuple(component for component in reference.components if component.is_ligand)
     ligand_atoms: dict[str, Sequence[AtomRecord]] = {
-        component.component_id: component.atoms
-        for component in reference.components
-        if component.is_ligand
+        component.component_id: component.atoms for component in ligands
     }
-    ligand_atoms.update(
-        {
-            component.residue_name: component.atoms
-            for component in reference.components
-            if component.is_ligand and component.residue_name is not None
-        }
-    )
+    by_name: dict[str, list[Sequence[AtomRecord]]] = {}
+    for component in ligands:
+        if component.residue_name is not None:
+            by_name.setdefault(component.residue_name, []).append(component.atoms)
+    for residue_name, candidates in by_name.items():
+        if len(candidates) == 1 and residue_name not in ligand_atoms:
+            ligand_atoms[residue_name] = candidates[0]
     return ligand_atoms
 
 
@@ -104,8 +103,13 @@ def evidence_cards(
         position = reference_position(item.reference)
         interaction_evidence = interactions_for_position(typed_interactions, position, position_for)
         site_values = sites_for_residue(item.reference, typed_sites, definitions, reference.residue_records)
-        available = ["sequence", "structure"]
+        structure_available = item.target is not None and item.ca_displacement_angstrom is not None
+        available = ["sequence"]
         unavailable: list[str] = []
+        if structure_available:
+            available.append("structure")
+        else:
+            unavailable.append("structure")
         if interaction_state is Availability.AVAILABLE:
             available.append("interactions")
         else:
@@ -124,7 +128,7 @@ def evidence_cards(
                     item.backbone_rmsd_angstrom,
                     item.sidechain_rmsd_angstrom,
                     item.all_heavy_atom_rmsd_angstrom,
-                    available=item.target is not None and item.ca_displacement_angstrom is not None,
+                    available=structure_available,
                 ),
                 interactions=interaction_evidence,
                 site=SiteEvidence(site_values),

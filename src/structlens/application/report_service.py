@@ -50,6 +50,9 @@ from structlens.application.report_geometry import (
     position_lookup as _position_lookup,
 )
 from structlens.application.report_input import (
+    apply_selection_diagnostics as _apply_selection_diagnostics,
+)
+from structlens.application.report_input import (
     canonical_manual_pairs as _canonical_manual_pairs,
 )
 from structlens.application.report_input import (
@@ -70,6 +73,7 @@ from structlens.application.report_input import (
 from structlens.application.report_input import (
     single_chain as _single_chain,
 )
+from structlens.application.report_materialization import materialized_analysis_inputs
 from structlens.application.report_provenance import report_provenance as _report_provenance
 from structlens.application.site_service import define_site
 from structlens.core.difference_maps import ResidueDisplacementVector
@@ -166,26 +170,38 @@ class ReportService:
             request.target_selection,
             source_role="target",
         )
-        input_quality = InputQualityBundle(reference_qc, target_qc)
         provenance = _report_provenance(request)
+        selection_diagnostics = _selection_diagnostics(request, reference, target)
+        reference_qc, target_qc = _apply_selection_diagnostics(
+            reference_qc,
+            target_qc,
+            selection_diagnostics,
+        )
+        input_quality = InputQualityBundle(reference_qc, target_qc)
         input_diagnostics = _merge_diagnostics(
             reference_qc.diagnostics,
             target_qc.diagnostics,
-            _selection_diagnostics(request, reference, target),
+            selection_diagnostics,
         )
         if not _inputs_are_usable(reference, target, reference_qc, target_qc):
             return _invalid_input_report(request, input_quality, provenance, input_diagnostics)
 
         assert reference is not None and target is not None
         try:
-            result = self._analysis.analyze(
-                reference.protein_structure,
-                target.protein_structure,
-                request.analysis_settings,
-                reference_chain_id=_single_chain(reference).chain_id,
-                target_chain_id=_single_chain(target).chain_id,
-                manual_pairs=_canonical_manual_pairs(request.manual_pairs) or None,
-            )
+            with materialized_analysis_inputs(
+                reference,
+                target,
+                request.reference_snapshot,
+                request.target_snapshot,
+            ) as (reference_structure, target_structure):
+                result = self._analysis.analyze(
+                    reference_structure,
+                    target_structure,
+                    request.analysis_settings,
+                    reference_chain_id=_single_chain(reference).chain_id,
+                    target_chain_id=_single_chain(target).chain_id,
+                    manual_pairs=_canonical_manual_pairs(request.manual_pairs) or None,
+                )
         except Exception as error:
             return _analysis_failure_report(
                 request,
@@ -226,7 +242,23 @@ class ReportService:
                 remediation="Review the selected model, chain, coordinate format, and parser diagnostics.",
             )
             return None, StructureQualityReport(Availability.INVALID_INPUT, (diagnostic,))
-        return parsed, self._quality.analyze(parsed)
+        try:
+            quality = self._quality.analyze(parsed)
+            if not isinstance(quality, StructureQualityReport):
+                raise TypeError("quality runner returned an invalid report")
+        except Exception as error:
+            diagnostic = Diagnostic(
+                code=f"report.input.{source_role}.quality.failed",
+                severity=DiagnosticSeverity.ERROR,
+                message=(
+                    f"The {source_role} input quality check could not be completed "
+                    f"({type(error).__name__})."
+                ),
+                source_id=canonical_snapshot.display_name,
+                remediation="Review the input and quality-control configuration before analysis.",
+            )
+            return parsed, StructureQualityReport(Availability.NUMERICAL_FAILURE, (diagnostic,))
+        return parsed, quality
 
     def _downstream_report(
         self,

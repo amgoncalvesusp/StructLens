@@ -210,7 +210,10 @@ def test_report_rejects_incoherent_selection_hash_provenance() -> None:
             report.target_selection,
             report.input_quality,
             report.analysis,
-            availability=SectionAvailability(analysis=Availability.AVAILABLE),
+            availability=SectionAvailability(
+                input_quality=Availability.AVAILABLE,
+                analysis=Availability.AVAILABLE,
+            ),
             provenance=wrong,
         )
 
@@ -236,6 +239,73 @@ def test_report_rejects_payload_hidden_behind_unavailable_state() -> None:
             report.target_selection,
             report.input_quality,
             report.analysis,
+        )
+
+
+def test_report_rejects_nonempty_vectors_hidden_behind_unavailable_state() -> None:
+    report = _report(_analysis(_correspondence(), {}), _distance_map(np.asarray(((0.0, 1.0), (1.0, 0.0)))))
+    vector = ResidueDisplacementVector(
+        "A:10",
+        _reference_residue(),
+        _target_residue(),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+        (0.0, 0.0, 1.0),
+        1.0,
+    )
+
+    with pytest.raises(ValueError, match="displacement_vectors availability"):
+        AnalysisReport(
+            report.reference_selection,
+            report.target_selection,
+            report.input_quality,
+            displacement_vectors=(vector,),
+        )
+
+
+def test_report_accepts_available_state_for_empty_or_nonempty_vectors() -> None:
+    report = _report(_analysis(_correspondence(), {}), _distance_map(np.asarray(((0.0, 1.0), (1.0, 0.0)))))
+    vector = ResidueDisplacementVector(
+        "A:10",
+        _reference_residue(),
+        _target_residue(),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+        (0.0, 0.0, 1.0),
+        1.0,
+    )
+    availability = SectionAvailability(
+        input_quality=Availability.AVAILABLE,
+        displacement_vectors=Availability.AVAILABLE,
+    )
+
+    empty = AnalysisReport(
+        report.reference_selection,
+        report.target_selection,
+        report.input_quality,
+        availability=availability,
+    )
+    populated = AnalysisReport(
+        report.reference_selection,
+        report.target_selection,
+        report.input_quality,
+        displacement_vectors=(vector,),
+        availability=availability,
+    )
+
+    assert empty.displacement_vectors == ()
+    assert populated.displacement_vectors == (vector,)
+
+
+def test_report_rejects_nonavailable_input_quality_when_both_qc_reports_are_available() -> None:
+    report = _report(_analysis(_correspondence(), {}), _distance_map(np.asarray(((0.0, 1.0), (1.0, 0.0)))))
+
+    with pytest.raises(ValueError, match="input_quality availability"):
+        AnalysisReport(
+            report.reference_selection,
+            report.target_selection,
+            report.input_quality,
+            availability=SectionAvailability(),
         )
 
 
@@ -439,6 +509,7 @@ def test_report_accepts_direct_tuple_sections_and_absent_provenance() -> None:
         interactions=(interaction,),
         sites=(site,),
         availability=SectionAvailability(
+            input_quality=Availability.AVAILABLE,
             interactions=Availability.AVAILABLE,
             sites=Availability.AVAILABLE,
         ),
