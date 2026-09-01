@@ -30,6 +30,7 @@ class SourceSnapshot:
     display_name: str
     logical_format: str
     is_gzip: bool
+    raw_bytes: bytes | None = None
 
     def __post_init__(self) -> None:
         content = bytes(self.decompressed_bytes)
@@ -48,6 +49,14 @@ class SourceSnapshot:
             raise ValueError("content_id does not match decompressed_bytes")
         if self.decompressed_sha256 != expected_content_hash:
             raise ValueError("decompressed_sha256 does not match decompressed_bytes")
+        raw = self.raw_bytes
+        if raw is not None:
+            raw = bytes(raw)
+            if hashlib.sha256(raw).hexdigest() != self.raw_sha256:
+                raise ValueError("raw_sha256 does not match raw_bytes")
+            object.__setattr__(self, "raw_bytes", raw)
+        elif self.raw_sha256 == expected_content_hash:
+            object.__setattr__(self, "raw_bytes", content)
 
     @classmethod
     def from_path(
@@ -101,38 +110,28 @@ def capture_snapshot(
     a path or an unbounded file-like object from this function.
     """
 
+    from structlens.core.reports.safe_io import SafeReadLimitError, read_bounded_bytes
+
     source_path = Path(path)
     logical_format, is_gzip = _logical_format(source_path)
     active_limits = limits if limits is not None else ParseLimits()
     raw_hash = hashlib.sha256()
-    raw_size = 0
     content = bytearray()
 
     try:
-        with source_path.open("rb") as source:
-            decoder = _GzipDecoder(active_limits.max_decompressed_bytes) if is_gzip else None
-            while True:
-                read_size = min(
-                    _READ_CHUNK_SIZE,
-                    active_limits.max_raw_bytes - raw_size + 1,
-                )
-                chunk = source.read(read_size)
-                if not chunk:
-                    break
-                raw_size += len(chunk)
-                if raw_size > active_limits.max_raw_bytes:
-                    raise SnapshotLimitError(
-                        "raw bytes",
-                        active_limits.max_raw_bytes,
-                        raw_size,
-                    )
-                raw_hash.update(chunk)
-                if decoder is None:
-                    _append_decompressed(content, chunk, active_limits)
-                else:
-                    decoder.feed(chunk, content)
-            if decoder is not None:
-                decoder.finish(content)
+        raw = read_bounded_bytes(source_path, max_bytes=active_limits.max_raw_bytes, label="source")
+        raw_hash.update(raw)
+        decoder = _GzipDecoder(active_limits.max_decompressed_bytes) if is_gzip else None
+        for start in range(0, len(raw), _READ_CHUNK_SIZE):
+            chunk = raw[start : start + _READ_CHUNK_SIZE]
+            if decoder is None:
+                _append_decompressed(content, chunk, active_limits)
+            else:
+                decoder.feed(chunk, content)
+        if decoder is not None:
+            decoder.finish(content)
+    except SafeReadLimitError as error:
+        raise SnapshotLimitError("raw bytes", error.limit, error.observed) from error
     except SnapshotError:
         raise
     except (OSError, zlib.error) as error:
@@ -148,6 +147,7 @@ def capture_snapshot(
         display_name=source_path.name,
         logical_format=logical_format,
         is_gzip=is_gzip,
+        raw_bytes=raw,
     )
 
 
@@ -204,11 +204,7 @@ def _append_decompressed(
     decoded: bytes,
     limits: ParseLimits | int,
 ) -> None:
-    max_size = (
-        limits.max_decompressed_bytes
-        if isinstance(limits, ParseLimits)
-        else limits
-    )
+    max_size = limits.max_decompressed_bytes if isinstance(limits, ParseLimits) else limits
     next_size = len(output) + len(decoded)
     if next_size > max_size:
         raise SnapshotLimitError("decompressed bytes", max_size, next_size)

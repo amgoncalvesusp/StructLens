@@ -16,13 +16,25 @@ from PIL import Image
 
 from structlens.core.difference_maps import DistanceDifferenceMatrix
 from structlens.core.evidence import EvidenceCard
-from structlens.core.interactions import InteractionDifference
+from structlens.core.interactions import InteractionDifference, InteractionRecord
 from structlens.core.models import AnalysisResult
 from structlens.core.msa import MSAColumn
 from structlens.core.sites import SiteMetrics
 
 
-def export_analysis_xlsx(result: AnalysisResult, path: str | Path) -> None:
+def export_analysis_xlsx(
+    result: AnalysisResult,
+    path: str | Path,
+    *,
+    snapshots: tuple[Any, ...] = (),
+    source_paths: tuple[str | Path, ...] = (),
+    snapshot_dir: str | Path | None = None,
+) -> None:
+    from structlens.core.reports import AnalysisReport
+
+    if isinstance(result, AnalysisReport):
+        export_report_xlsx(result, path, snapshots=snapshots, source_paths=source_paths, snapshot_dir=snapshot_dir)
+        return
     workbook = Workbook()
     summary = workbook.active
     if summary is None:
@@ -54,9 +66,7 @@ def export_analysis_xlsx(result: AnalysisResult, path: str | Path) -> None:
             "Key residue",
         ]
     )
-    by_index = {
-        event.alignment_index: event.canonical_notation for event in result.mutations
-    }
+    by_index = {event.alignment_index: event.canonical_notation for event in result.mutations}
     for item in result.correspondences:
         residues.append(
             [
@@ -105,7 +115,19 @@ def export_analysis_xlsx(result: AnalysisResult, path: str | Path) -> None:
     workbook.save(path)
 
 
-def export_analysis_csv(result: AnalysisResult, path: str | Path) -> None:
+def export_analysis_csv(
+    result: AnalysisResult,
+    path: str | Path,
+    *,
+    snapshots: tuple[Any, ...] = (),
+    source_paths: tuple[str | Path, ...] = (),
+    snapshot_dir: str | Path | None = None,
+) -> None:
+    from structlens.core.reports import AnalysisReport
+
+    if isinstance(result, AnalysisReport):
+        export_report_csv(result, path, snapshots=snapshots, source_paths=source_paths, snapshot_dir=snapshot_dir)
+        return
     rows = [
         {
             "reference_residue": _residue_label(item.reference),
@@ -118,14 +140,24 @@ def export_analysis_csv(result: AnalysisResult, path: str | Path) -> None:
         for item in result.correspondences
     ]
     with Path(path).open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(
-            handle, fieldnames=list(rows[0]) if rows else ["status"]
-        )
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else ["status"])
         writer.writeheader()
         writer.writerows(rows)
 
 
-def export_analysis_json(result: AnalysisResult, path: str | Path) -> None:
+def export_analysis_json(
+    result: AnalysisResult,
+    path: str | Path,
+    *,
+    snapshots: tuple[Any, ...] = (),
+    source_paths: tuple[str | Path, ...] = (),
+    snapshot_dir: str | Path | None = None,
+) -> None:
+    from structlens.core.reports import AnalysisReport
+
+    if isinstance(result, AnalysisReport):
+        export_report_json(result, path, snapshots=snapshots, source_paths=source_paths, snapshot_dir=snapshot_dir)
+        return
     payload: dict[str, Any] = {
         "reference_id": result.reference_id,
         "target_id": result.target_id,
@@ -136,9 +168,7 @@ def export_analysis_json(result: AnalysisResult, path: str | Path) -> None:
         "refined_rmsd_angstrom": result.refined_rmsd_angstrom,
         "mutations": [asdict(event) for event in result.mutations],
     }
-    Path(path).write_text(
-        json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
-    )
+    Path(path).write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
 def export_publication_image(
@@ -158,24 +188,16 @@ def export_publication_image(
     suffix = output_path.suffix.lower()
     if suffix not in {".jpg", ".jpeg", ".tif", ".tiff"}:
         raise ValueError("Publication image format must be JPEG or TIFF")
-    if suffix in {".jpg", ".jpeg"} and (
-        "A" in image.getbands() or image.mode in {"RGBA", "LA"}
-    ):
-        raise ValueError(
-            "JPEG export does not support transparency; provide an opaque image"
-        )
+    if suffix in {".jpg", ".jpeg"} and ("A" in image.getbands() or image.mode in {"RGBA", "LA"}):
+        raise ValueError("JPEG export does not support transparency; provide an opaque image")
     width_px = round(width_mm / 25.4 * dpi)
     height_px = max(1, round(width_px * image.height / image.width))
     rendered = image.resize((width_px, height_px), Image.Resampling.LANCZOS)
     if suffix in {".jpg", ".jpeg"}:
         rendered = rendered.convert("RGB")
-        rendered.save(
-            output_path, format="JPEG", quality=95, dpi=(dpi, dpi), optimize=True
-        )
+        rendered.save(output_path, format="JPEG", quality=95, dpi=(dpi, dpi), optimize=True)
     else:
-        rendered.save(
-            output_path, format="TIFF", compression="tiff_deflate", dpi=(dpi, dpi)
-        )
+        rendered.save(output_path, format="TIFF", compression="tiff_deflate", dpi=(dpi, dpi))
 
 
 def export_v03_xlsx(
@@ -197,14 +219,47 @@ def export_v03_xlsx(
     workbook.remove(default)
 
     msa = workbook.create_sheet("MSA")
-    msa.append(["Alignment column", "Reference label", "Reference residue", "Non-gap count", "Gap fraction", "Ambiguous fraction", "Conservation", "Entropy (bits)"])
+    msa.append(
+        [
+            "Alignment column",
+            "Reference label",
+            "Reference residue",
+            "Non-gap count",
+            "Gap fraction",
+            "Ambiguous fraction",
+            "Conservation",
+            "Entropy (bits)",
+        ]
+    )
     for column in msa_columns:
-        msa.append([column.index, column.reference_label, _residue_label(column.reference_residue), column.non_gap_count, column.gap_fraction, column.ambiguous_fraction, column.conservation_score, column.entropy_bits])
+        msa.append(
+            [
+                column.index,
+                column.reference_label,
+                _residue_label(column.reference_residue),
+                column.non_gap_count,
+                column.gap_fraction,
+                column.ambiguous_fraction,
+                column.conservation_score,
+                column.entropy_bits,
+            ]
+        )
 
     conservation = workbook.create_sheet("Conservation")
-    conservation.append(["Alignment column", "Reference label", "Conservation", "Gap fraction", "Ambiguous fraction", "Units"])
+    conservation.append(
+        ["Alignment column", "Reference label", "Conservation", "Gap fraction", "Ambiguous fraction", "Units"]
+    )
     for column in msa_columns:
-        conservation.append([column.index, column.reference_label, column.conservation_score, column.gap_fraction, column.ambiguous_fraction, "fraction"])
+        conservation.append(
+            [
+                column.index,
+                column.reference_label,
+                column.conservation_score,
+                column.gap_fraction,
+                column.ambiguous_fraction,
+                "fraction",
+            ]
+        )
 
     frequencies = workbook.create_sheet("Amino Acid Frequencies")
     frequencies.append(["Alignment column", "Reference label", *tuple("ACDEFGHIKLMNPQRSTVWY")])
@@ -215,7 +270,9 @@ def export_v03_xlsx(
             if cell.character.upper() in counts:
                 counts[cell.character.upper()] += 1
                 valid += 1
-        frequencies.append([column.index, column.reference_label, *(counts[letter] / valid if valid else None for letter in counts)])
+        frequencies.append(
+            [column.index, column.reference_label, *(counts[letter] / valid if valid else None for letter in counts)]
+        )
 
     insertions = workbook.create_sheet("Insertions")
     insertions.append(
@@ -249,20 +306,80 @@ def export_v03_xlsx(
             )
 
     interactions = workbook.create_sheet("Interaction Differences")
-    interactions.append(["Type", "Reference position A", "Reference position B", "Change", "Reference distance (Å)", "Target distance (Å)", "Evidence mode"])
+    interactions.append(
+        [
+            "Type",
+            "Reference position A",
+            "Reference position B",
+            "Change",
+            "Reference distance (Å)",
+            "Target distance (Å)",
+            "Evidence mode",
+        ]
+    )
     for difference in interaction_differences:
         record = difference.target_record if difference.target_record is not None else difference.reference_record
-        interactions.append([difference.key.interaction_type.value, difference.key.reference_position_a, difference.key.reference_position_b, difference.change.value, difference.reference_record.distance_angstrom if difference.reference_record else None, difference.target_record.distance_angstrom if difference.target_record else None, record.evidence_mode if record is not None else None])
+        interactions.append(
+            [
+                difference.key.interaction_type.value,
+                difference.key.reference_position_a,
+                difference.key.reference_position_b,
+                difference.change.value,
+                difference.reference_record.distance_angstrom if difference.reference_record else None,
+                difference.target_record.distance_angstrom if difference.target_record else None,
+                record.evidence_mode if record is not None else None,
+            ]
+        )
 
     sites = workbook.create_sheet("Sites")
-    sites.append(["Site", "Structure", "Mapped residues", "Coverage", "Global-frame RMSD (Å)", "Site-fitted RMSD (Å)", "SASA (Å²)", "Atomic envelope volume (Å³)"])
+    sites.append(
+        [
+            "Site",
+            "Structure",
+            "Mapped residues",
+            "Coverage",
+            "Global-frame RMSD (Å)",
+            "Site-fitted RMSD (Å)",
+            "SASA (Å²)",
+            "Atomic envelope volume (Å³)",
+        ]
+    )
     for metric in site_metrics:
-        sites.append([metric.site_id, metric.structure_id, metric.mapped_residue_count, metric.coverage_fraction, metric.global_frame_backbone_rmsd_angstrom, metric.site_fitted_backbone_rmsd_angstrom, metric.sasa_angstrom2, metric.atomic_envelope_volume_angstrom3])
+        sites.append(
+            [
+                metric.site_id,
+                metric.structure_id,
+                metric.mapped_residue_count,
+                metric.coverage_fraction,
+                metric.global_frame_backbone_rmsd_angstrom,
+                metric.site_fitted_backbone_rmsd_angstrom,
+                metric.sasa_angstrom2,
+                metric.atomic_envelope_volume_angstrom3,
+            ]
+        )
 
     fingerprints = workbook.create_sheet("Site Metrics")
-    fingerprints.append(["Site", "Structure", "Centroid displacement (Å)", "Radius of gyration (Å)", "Polar fraction", "Charged fraction"])
+    fingerprints.append(
+        [
+            "Site",
+            "Structure",
+            "Centroid displacement (Å)",
+            "Radius of gyration (Å)",
+            "Polar fraction",
+            "Charged fraction",
+        ]
+    )
     for metric in site_metrics:
-        fingerprints.append([metric.site_id, metric.structure_id, metric.centroid_displacement_angstrom, metric.radius_of_gyration_angstrom, metric.polar_residue_fraction, metric.charged_residue_fraction])
+        fingerprints.append(
+            [
+                metric.site_id,
+                metric.structure_id,
+                metric.centroid_displacement_angstrom,
+                metric.radius_of_gyration_angstrom,
+                metric.polar_residue_fraction,
+                metric.charged_residue_fraction,
+            ]
+        )
 
     site_fingerprints = workbook.create_sheet("Site Interaction Fingerprints")
     site_fingerprints.append(
@@ -297,18 +414,52 @@ def export_v03_xlsx(
         valid_mask = np.asarray(distance_matrix.valid_mask, dtype=bool)
         distances.append(["Reference position", *distance_matrix.reference_positions])
         for index, label in enumerate(distance_matrix.reference_positions):
-            distances.append([label, *[float(value) if valid_mask[index, column] else None for column, value in enumerate(delta[index])]])
+            distances.append(
+                [
+                    label,
+                    *[float(value) if valid_mask[index, column] else None for column, value in enumerate(delta[index])],
+                ]
+            )
 
     evidence = workbook.create_sheet("Residue Evidence")
-    evidence.append(["Reference residue", "Target", "Evidence quality", "Sequence conservation", "Cα displacement (Å)", "Global site RMSD (Å)", "Site-fitted RMSD (Å)"])
+    evidence.append(
+        [
+            "Reference residue",
+            "Target",
+            "Evidence quality",
+            "Sequence conservation",
+            "Cα displacement (Å)",
+            "Global site RMSD (Å)",
+            "Site-fitted RMSD (Å)",
+        ]
+    )
     for card in evidence_cards:
         metrics = card.site.metrics[0] if card.site.metrics else None
-        evidence.append([_residue_label(card.reference_residue), card.target_id, card.quality.overall_status, card.sequence.conservation_fraction, card.structure.ca_displacement_angstrom, metrics.global_frame_backbone_rmsd_angstrom if metrics else None, metrics.site_fitted_backbone_rmsd_angstrom if metrics else None])
+        evidence.append(
+            [
+                _residue_label(card.reference_residue),
+                card.target_id,
+                card.quality.overall_status,
+                card.sequence.conservation_fraction,
+                card.structure.ca_displacement_angstrom,
+                metrics.global_frame_backbone_rmsd_angstrom if metrics else None,
+                metrics.site_fitted_backbone_rmsd_angstrom if metrics else None,
+            ]
+        )
 
     quality = workbook.create_sheet("Evidence Quality")
     quality.append(["Reference residue", "Target", "Status", "Available sections", "Unavailable sections", "Warnings"])
     for card in evidence_cards:
-        quality.append([_residue_label(card.reference_residue), card.target_id, card.quality.overall_status, ", ".join(card.quality.available_sections), ", ".join(card.quality.unavailable_sections), "; ".join(card.quality.warnings)])
+        quality.append(
+            [
+                _residue_label(card.reference_residue),
+                card.target_id,
+                card.quality.overall_status,
+                ", ".join(card.quality.available_sections),
+                ", ".join(card.quality.unavailable_sections),
+                "; ".join(card.quality.warnings),
+            ]
+        )
 
     provenance_sheet = workbook.create_sheet("Provenance")
     provenance_sheet.append(["Source"])
@@ -327,10 +478,259 @@ def _residue_label(residue: Any) -> str:
     return f"{residue.chain_id}:{residue.auth_seq_id}{insertion} {residue.residue_name}"
 
 
+def _legacy_export_report_xlsx(
+    report: Any,
+    path: str | Path,
+    *,
+    snapshots: tuple[Any, ...] = (),
+    source_paths: tuple[str | Path, ...] = (),
+    snapshot_dir: str | Path | None = None,
+) -> None:
+    from structlens.application.report_serialization import serialize_report
+    from structlens.core.evidence import InteractionEvidence, SiteEvidence
+    from structlens.core.reports import AnalysisReport
+
+    if not isinstance(report, AnalysisReport):
+        raise TypeError("report must be an AnalysisReport")
+    serialize_report(report, snapshots=snapshots, source_paths=source_paths, snapshot_dir=snapshot_dir)
+    workbook = Workbook()
+    default = workbook.active
+    if default is None:
+        raise RuntimeError("Workbook did not create a worksheet")
+    workbook.remove(default)
+
+    summary = workbook.create_sheet("Summary")
+    summary.append(["Metric", "Value", "Units", "Status", "Reason"])
+    availability = report.availability
+    summary_rows = (
+        ("Report ID", report.report_id, "", "available", ""),
+        (
+            "Sequence identity",
+            report.analysis.sequence_identity if report.analysis else None,
+            "fraction",
+            availability.analysis.value,
+            _missing_reason(availability.analysis.value),
+        ),
+        (
+            "Sequence coverage",
+            report.analysis.sequence_coverage if report.analysis else None,
+            "fraction",
+            availability.analysis.value,
+            _missing_reason(availability.analysis.value),
+        ),
+        (
+            "Strict Cα RMSD",
+            report.analysis.strict_rmsd_angstrom if report.analysis else None,
+            "angstrom",
+            availability.analysis.value,
+            _missing_reason(availability.analysis.value),
+        ),
+        (
+            "Refined Cα RMSD",
+            report.analysis.refined_rmsd_angstrom if report.analysis else None,
+            "angstrom",
+            availability.analysis.value,
+            _missing_reason(availability.analysis.value),
+        ),
+    )
+    for row in summary_rows:
+        summary.append(row)
+
+    structures = workbook.create_sheet("Structures")
+    structures.append(["Role", "Content ID", "Raw SHA-256", "Format", "Model", "Status", "Reason"])
+    hashes = dict(report.provenance.input_hashes) if report.provenance is not None else {}
+    for role, selection in (("reference", report.reference_selection), ("target", report.target_selection)):
+        raw_hash = _provenance_hash(hashes, role, "raw")
+        structures.append(
+            [role, selection.content_id, raw_hash, selection.format.value, selection.model_id, "available", ""]
+        )
+
+    qc = workbook.create_sheet("QC")
+    qc.append(["Role", "Availability", "Errors", "Warnings", "Status", "Reason"])
+    for role, quality in (("reference", report.input_quality.reference), ("target", report.input_quality.target)):
+        qc.append(
+            [
+                role,
+                quality.availability.value,
+                quality.error_count,
+                quality.warning_count,
+                quality.availability.value,
+                _missing_reason(quality.availability.value),
+            ]
+        )
+
+    pockets = workbook.create_sheet("Pockets")
+    pockets.append(
+        ["Site", "Structure", "Mapped residues", "Coverage", "Envelope volume (Å³)", "SASA (Å²)", "Status", "Reason"]
+    )
+    site_values: tuple[SiteMetrics, ...] = (
+        report.sites.metrics if isinstance(report.sites, SiteEvidence) else (report.sites or ())
+    )
+    for site_metric in site_values:
+        pockets.append(
+            [
+                site_metric.site_id,
+                site_metric.structure_id,
+                site_metric.mapped_residue_count,
+                site_metric.coverage_fraction,
+                site_metric.atomic_envelope_volume_angstrom3,
+                site_metric.sasa_angstrom2,
+                availability.sites.value,
+                _missing_reason(availability.sites.value),
+            ]
+        )
+
+    matches = workbook.create_sheet("Matches")
+    matches.append(
+        [
+            "Interaction type",
+            "Reference position A",
+            "Reference position B",
+            "Change",
+            "Reference distance (Å)",
+            "Target distance (Å)",
+            "Status",
+            "Reason",
+        ]
+    )
+    interaction_values: tuple[InteractionDifference | InteractionRecord, ...] = (
+        report.interactions.differences
+        if isinstance(report.interactions, InteractionEvidence)
+        else (report.interactions or ())
+    )
+    for interaction in interaction_values:
+        if isinstance(interaction, InteractionDifference):
+            matches.append(
+                [
+                    interaction.key.interaction_type.value,
+                    interaction.key.reference_position_a,
+                    interaction.key.reference_position_b,
+                    interaction.change.value,
+                    interaction.reference_record.distance_angstrom if interaction.reference_record else None,
+                    interaction.target_record.distance_angstrom if interaction.target_record else None,
+                    availability.interactions.value,
+                    _missing_reason(availability.interactions.value),
+                ]
+            )
+        else:
+            matches.append(
+                [
+                    interaction.interaction_type.value,
+                    _residue_label(interaction.residue_a),
+                    _residue_label(interaction.residue_b),
+                    "observed",
+                    interaction.distance_angstrom,
+                    None,
+                    availability.interactions.value,
+                    _missing_reason(availability.interactions.value),
+                ]
+            )
+
+    lining = workbook.create_sheet("Lining Residues")
+    lining.append(["Site", "Structure", "Residue", "Relationship", "Status", "Reason"])
+
+    diagnostics = workbook.create_sheet("Diagnostics")
+    diagnostics.append(["Code", "Severity", "Message", "Source", "Atom", "Residue", "Remediation"])
+    for diagnostic in report.diagnostics:
+        diagnostics.append(
+            [
+                diagnostic.code,
+                diagnostic.severity.value,
+                diagnostic.message,
+                diagnostic.source_id,
+                diagnostic.atom_id,
+                diagnostic.residue_id,
+                diagnostic.remediation,
+            ]
+        )
+
+    methods = workbook.create_sheet("Methods")
+    methods.append(
+        ["Method ID", "Version", "Analyzed representation", "Artifact ID", "Parameters", "Units", "Backend versions"]
+    )
+    if report.provenance is not None:
+        methods.append(
+            [
+                report.provenance.method_id,
+                report.provenance.method_version,
+                report.provenance.analyzed_representation,
+                report.provenance.artifact_id,
+                json.dumps(report.provenance.parameters, sort_keys=True, default=str),
+                json.dumps(dict(report.provenance.units), sort_keys=True),
+                json.dumps(dict(report.provenance.backend_versions), sort_keys=True),
+            ]
+        )
+
+    provenance_sheet = workbook.create_sheet("Provenance")
+    provenance_sheet.append(["Key", "Value"])
+    for key, value in sorted(hashes.items()):
+        provenance_sheet.append([key, value])
+    if report.provenance is not None:
+        provenance_sheet.append(["artifact_id", report.provenance.artifact_id])
+    for sheet in workbook.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+    workbook.save(path)
+
+
+def _provenance_hash(hashes: Mapping[str, str], role: str, kind: str) -> str | None:
+    for key, value in hashes.items():
+        normalized = key.casefold().replace("-", "_")
+        if normalized in {f"{role}_{kind}", f"{role}_{kind}_sha256", f"{role}_source_{kind}"}:
+            return value
+    return None
+
+
+def _missing_reason(status: str) -> str:
+    return "" if status == "available" else status.replace("_", " ")
+
+
+def export_report_json(report: Any, path: str | Path, **kwargs: Any) -> None:
+    from structlens.application.report_exports import export_report_json as export
+
+    export(report, path, **kwargs)
+
+
+def export_report_xlsx(report: Any, path: str | Path, **kwargs: Any) -> None:
+    from structlens.application.report_exports import export_report_xlsx as export
+
+    export(report, path, **kwargs)
+
+
+def export_report_table(report: Any, path: str | Path, **kwargs: Any) -> None:
+    from structlens.application.report_exports import export_report_table as export
+
+    export(report, path, **kwargs)
+
+
+def export_report_csv(report: Any, path: str | Path, **kwargs: Any) -> None:
+    from structlens.application.report_exports import export_report_csv as export
+
+    export(report, path, **kwargs)
+
+
+def export_report_tsv(report: Any, path: str | Path, **kwargs: Any) -> None:
+    from structlens.application.report_exports import export_report_tsv as export
+
+    export(report, path, **kwargs)
+
+
+# Symmetric name for callers that already use the v0.3 CSV entry point.
+export_analysis_tsv = export_report_tsv
+
+
 __all__ = [
     "export_analysis_csv",
     "export_analysis_json",
+    "export_analysis_tsv",
     "export_analysis_xlsx",
+    "export_report_csv",
+    "export_report_json",
+    "export_report_table",
+    "export_report_tsv",
+    "export_report_xlsx",
     "export_publication_image",
     "export_v03_xlsx",
 ]

@@ -75,6 +75,8 @@ structlens = [
     "resources/freesasa/VERSION",
     "resources/freesasa/LICENSE",
     "resources/freesasa/CITATION.md",
+    "resources/schema/*.json",
+    "resources/schema/__init__.py",
 ]
 
 [tool.pytest.ini_options]

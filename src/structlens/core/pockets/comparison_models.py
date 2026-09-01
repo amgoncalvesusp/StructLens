@@ -422,6 +422,8 @@ class PocketComparison:
         return self.sidechain_displacement_angstrom
 
     def to_json(self) -> dict[str, Any]:
+        from structlens.core.reports.serialization import mutation_json
+
         def surface_provenance(value: FrozenJSON | MethodProvenance | None) -> object:
             if value is None:
                 return None
@@ -446,7 +448,7 @@ class PocketComparison:
             "lining_residue_conserved": [residue_to_json(item) for item in self.lining_residue_conserved],
             "lining_residue_gains": [residue_to_json(item) for item in self.lining_residue_gains],
             "lining_residue_losses": [residue_to_json(item) for item in self.lining_residue_losses],
-            "associated_mutations": [item.canonical_notation for item in self.associated_mutations],
+            "associated_mutations": [mutation_json(item) for item in self.associated_mutations],
             "interaction_changes": [interaction_to_json(item) for item in self.interaction_changes],
             "local_displacement_angstrom": self.local_displacement_angstrom,
             "ca_displacement_angstrom": self.ca_displacement_angstrom,

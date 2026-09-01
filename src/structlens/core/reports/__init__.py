@@ -8,6 +8,19 @@ from .models import (
     InputQualityBundle,
     SectionAvailability,
 )
+from .pockets import (
+    PocketDetectionSnapshot,
+    PocketLiningSnapshot,
+    PocketReportSnapshot,
+    PocketVolumeSnapshot,
+)
+from .schema import (
+    SUPPORTED_REPORT_SCHEMA_VERSION,
+    AnalysisReportSchemaError,
+    load_analysis_report_schema,
+    validate_analysis_report_payload,
+    validate_report_schema,
+)
 
 __all__ = [
     "AnalysisReport",
@@ -16,4 +29,13 @@ __all__ = [
     "DistanceMapSnapshot",
     "InputQualityBundle",
     "SectionAvailability",
+    "PocketDetectionSnapshot",
+    "PocketLiningSnapshot",
+    "PocketReportSnapshot",
+    "PocketVolumeSnapshot",
+    "AnalysisReportSchemaError",
+    "SUPPORTED_REPORT_SCHEMA_VERSION",
+    "load_analysis_report_schema",
+    "validate_analysis_report_payload",
+    "validate_report_schema",
 ]

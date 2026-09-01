@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://structlens.org/schema/analysis-report-v1.json",
+  "title": "StructLens canonical analysis report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "comparison_mode", "reference_selection", "target_selection",
+    "input_quality", "analysis", "msa", "interactions", "sites", "distance_map",
+    "displacement_vectors", "evidence_cards", "site_definitions", "availability",
+    "diagnostics", "provenance", "pockets", "report_id"
+  ],
+  "properties": {
+    "schema_version": {"const": "4.0"},
+    "comparison_mode": {"type": "string", "enum": ["pairwise", "reference_vs_many", "all_vs_all"]},
+    "reference_selection": {"$ref": "#/$defs/selection"},
+    "target_selection": {"$ref": "#/$defs/selection"},
+    "input_quality": {"$ref": "#/$defs/input_quality"},
+    "analysis": {"anyOf": [{"$ref": "#/$defs/analysis"}, {"type": "null"}]},
+    "msa": {"anyOf": [{"$ref": "#/$defs/msa"}, {"type": "null"}]},
+    "interactions": {"anyOf": [{"$ref": "#/$defs/interaction_list"}, {"$ref": "#/$defs/interaction_evidence"}, {"type": "null"}]},
+    "sites": {"anyOf": [{"type": "array", "items": {"$ref": "#/$defs/site_metric"}}, {"$ref": "#/$defs/site_evidence"}, {"type": "null"}]},
+    "distance_map": {"anyOf": [{"$ref": "#/$defs/distance_map"}, {"type": "null"}]},
+    "displacement_vectors": {"type": "array", "items": {"$ref": "#/$defs/vector"}},
+    "evidence_cards": {"type": "array", "items": {"$ref": "#/$defs/evidence_card"}},
+    "site_definitions": {"type": "array", "items": {"$ref": "#/$defs/site_definition"}},
+    "availability": {"$ref": "#/$defs/availability"},
+    "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+    "provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]},
+    "pockets": {"anyOf": [{"$ref": "#/$defs/pockets"}, {"type": "null"}]},
+    "report_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_quality", "analysis", "msa", "interactions", "sites", "distance_map", "displacement_vectors", "evidence_cards", "pockets"],
+      "properties": {
+        "input_quality": {"$ref": "#/$defs/availability_value"},
+        "analysis": {"$ref": "#/$defs/availability_value"},
+        "msa": {"$ref": "#/$defs/availability_value"},
+        "interactions": {"$ref": "#/$defs/availability_value"},
+        "sites": {"$ref": "#/$defs/availability_value"},
+        "distance_map": {"$ref": "#/$defs/availability_value"},
+        "displacement_vectors": {"$ref": "#/$defs/availability_value"},
+        "evidence_cards": {"$ref": "#/$defs/availability_value"},
+        "pockets": {"$ref": "#/$defs/availability_value"}
+      }
+    },
+    "availability_value": {
+      "type": "string",
+      "enum": ["available", "not_applicable", "not_detected", "invalid_input", "dependency_unavailable", "numerical_failure"]
+    },
+    "input_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "target"],
+      "properties": {
+        "reference": {"$ref": "#/$defs/quality"},
+        "target": {"$ref": "#/$defs/quality"}
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "diagnostics", "counts", "settings", "provenance"],
+      "properties": {
+        "availability": {"$ref": "#/$defs/availability_value"},
+        "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+        "counts": {"type": "object"},
+        "settings": {"$ref": "#/$defs/qc_settings"},
+        "provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message", "source_id", "atom_id", "residue_id", "remediation"],
+      "properties": {
+        "code": {"type": "string"},
+        "severity": {"type": "string", "enum": ["info", "warning", "error"]},
+        "message": {"type": "string"},
+        "source_id": {"type": ["string", "null"]},
+        "atom_id": {"type": ["string", "null"]},
+        "residue_id": {"type": ["string", "null"]},
+        "remediation": {"type": ["string", "null"]}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "method_version", "parameters", "units", "backend_versions", "input_hashes", "analyzed_representation", "artifact_id"],
+      "properties": {
+        "method_id": {"type": "string"},
+        "method_version": {"type": "string"},
+        "parameters": {"type": "object"},
+        "units": {"type": "object"},
+        "backend_versions": {"type": "object"},
+        "input_hashes": {"type": "object"},
+        "analyzed_representation": {"type": "string"},
+        "artifact_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "pockets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detections", "volumes", "matching", "comparisons", "lining_residues", "concordance", "diagnostics", "provenance", "units", "availability"],
+      "properties": {
+        "detections": {"type": "array", "items": {"$ref": "#/$defs/pocket_detection"}},
+        "volumes": {"type": "array", "items": {"$ref": "#/$defs/pocket_volume"}},
+        "matching": {"anyOf": [{"$ref": "#/$defs/pocket_matching"}, {"type": "null"}]},
+        "comparisons": {"type": "array", "items": {"$ref": "#/$defs/pocket_comparison"}},
+        "lining_residues": {"type": "array", "items": {"$ref": "#/$defs/pocket_lining"}},
+        "concordance": {"anyOf": [{"$ref": "#/$defs/concordance"}, {"type": "null"}]},
+        "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+        "provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]},
+        "units": {"type": "object"},
+        "availability": {"$ref": "#/$defs/availability_value"}
+      }
+    },
+    "analysis": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference_id", "target_id", "correspondences", "mutations", "sequence_identity", "sequence_coverage", "alignment_decision", "sequence_similarity", "strict_rmsd_angstrom", "refined_rmsd_angstrom", "mapped_residue_count", "refined_residue_count", "excluded_alignment_indices", "tm_score", "legacy_provenance", "transform", "method_provenance"],
+      "properties": {
+        "reference_id": {"type": "string"}, "target_id": {"type": "string"},
+        "correspondences": {"type": "array", "items": {"$ref": "#/$defs/correspondence"}},
+        "mutations": {"type": "array", "items": {"$ref": "#/$defs/mutation"}},
+        "sequence_identity": {"type": "number"}, "sequence_coverage": {"type": "number"}, "alignment_decision": {"type": "string"},
+        "sequence_similarity": {"type": ["number", "null"]}, "strict_rmsd_angstrom": {"type": ["number", "null"]}, "refined_rmsd_angstrom": {"type": ["number", "null"]},
+        "mapped_residue_count": {"type": "integer"}, "refined_residue_count": {"type": ["integer", "null"]}, "excluded_alignment_indices": {"type": "array"}, "tm_score": {"type": ["number", "null"]},
+        "legacy_provenance": {"type": "object"}, "transform": {"anyOf": [{"$ref": "#/$defs/transform"}, {"type": "null"}]}, "method_provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]}
+      }
+    },
+    "correspondence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["alignment_index", "reference", "target", "reference_one_letter", "target_one_letter", "status", "sequence_score", "ca_displacement_angstrom", "backbone_rmsd_angstrom", "sidechain_rmsd_angstrom", "all_heavy_atom_rmsd_angstrom", "is_outlier", "is_key_residue", "mapping_source", "mapping_locked"],
+      "properties": {
+        "alignment_index": {"type": "integer"}, "reference": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "target": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "reference_one_letter": {"type": ["string", "null"]}, "target_one_letter": {"type": ["string", "null"]}, "status": {"type": "string"}, "sequence_score": {"type": ["number", "null"]}, "ca_displacement_angstrom": {"type": ["number", "null"]}, "backbone_rmsd_angstrom": {"type": ["number", "null"]}, "sidechain_rmsd_angstrom": {"type": ["number", "null"]}, "all_heavy_atom_rmsd_angstrom": {"type": ["number", "null"]}, "is_outlier": {"type": "boolean"}, "is_key_residue": {"type": "boolean"}, "mapping_source": {"type": "string"}, "mapping_locked": {"type": "boolean"}
+      }
+    },
+    "mutation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["alignment_index", "kind", "reference", "target", "reference_aa", "target_aa", "reference_label", "target_label", "canonical_notation", "blosum62_score", "grantham_distance", "physicochemical_class"],
+      "properties": {"alignment_index": {"type": "integer"}, "kind": {"type": "string"}, "reference": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "target": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "reference_aa": {"type": ["string", "null"]}, "target_aa": {"type": ["string", "null"]}, "reference_label": {"type": "string"}, "target_label": {"type": "string"}, "canonical_notation": {"type": "string"}, "blosum62_score": {"type": ["integer", "null"]}, "grantham_distance": {"type": ["integer", "null"]}, "physicochemical_class": {"type": ["string", "null"]}}
+    },
+    "vector": {"type": "object", "additionalProperties": false, "required": ["reference_position", "reference_residue", "target_residue", "start_xyz", "end_xyz", "vector_xyz", "magnitude_angstrom"], "properties": {"reference_position": {"type": "string"}, "reference_residue": {"$ref": "#/$defs/residue"}, "target_residue": {"$ref": "#/$defs/residue"}, "start_xyz": {"$ref": "#/$defs/point"}, "end_xyz": {"$ref": "#/$defs/point"}, "vector_xyz": {"$ref": "#/$defs/point"}, "magnitude_angstrom": {"type": "number"}}},
+    "site_definition": {"type": "object", "additionalProperties": false, "required": ["site_id", "name", "mode", "reference_residues", "center_residue", "ligand_id", "radius_angstrom"], "properties": {"site_id": {"type": "string"}, "name": {"type": "string"}, "mode": {"type": "string"}, "reference_residues": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "center_residue": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "ligand_id": {"type": ["string", "null"]}, "radius_angstrom": {"type": ["number", "null"]}}},
+    "residue": {"type": "object", "additionalProperties": false, "required": ["structure_id", "model_id", "chain_id", "auth_seq_id", "insertion_code", "residue_name"], "properties": {"structure_id": {"type": "string"}, "model_id": {"type": "string"}, "chain_id": {"type": "string"}, "auth_seq_id": {"type": "string"}, "insertion_code": {"type": ["string", "null"]}, "residue_name": {"type": "string"}}},
+    "point": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "transform": {"type": "object", "additionalProperties": false, "required": ["rotation", "translation"], "properties": {"rotation": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/point"}}, "translation": {"$ref": "#/$defs/point"}}},
+    "qc_settings": {"type": "object", "additionalProperties": false, "required": ["altloc_occupancy_tolerance", "b_factor_minimum", "occupancy_minimum", "occupancy_maximum", "min_cn_distance_angstrom", "max_cn_distance_angstrom", "min_ca_distance_angstrom", "max_ca_distance_angstrom", "heavy_atom_overlap_tolerance_angstrom"], "properties": {"altloc_occupancy_tolerance": {"type": "number"}, "b_factor_minimum": {"type": "number"}, "occupancy_minimum": {"type": "number"}, "occupancy_maximum": {"type": "number"}, "min_cn_distance_angstrom": {"type": "number"}, "max_cn_distance_angstrom": {"type": "number"}, "min_ca_distance_angstrom": {"type": "number"}, "max_ca_distance_angstrom": {"type": "number"}, "heavy_atom_overlap_tolerance_angstrom": {"type": "number"}}},
+    "sequence_ref": {"type": "object", "additionalProperties": false, "required": ["sequence_index", "one_letter", "residue_id"], "properties": {"sequence_index": {"type": "integer"}, "one_letter": {"type": "string"}, "residue_id": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}}},
+    "msa_cell": {"type": "object", "additionalProperties": false, "required": ["structure_id", "alignment_column", "residue", "character"], "properties": {"structure_id": {"type": "string"}, "alignment_column": {"type": "integer"}, "residue": {"anyOf": [{"$ref": "#/$defs/sequence_ref"}, {"type": "null"}]}, "character": {"type": "string"}}},
+    "msa_sequence": {"type": "object", "additionalProperties": false, "required": ["structure_id", "chain_id", "sequence", "source", "residues"], "properties": {"structure_id": {"type": "string"}, "chain_id": {"type": "string"}, "sequence": {"type": "string"}, "source": {"type": "string"}, "residues": {"type": "array", "items": {"$ref": "#/$defs/sequence_ref"}}}},
+    "msa_column": {"type": "object", "additionalProperties": false, "required": ["index", "reference_label", "reference_residue", "cells", "non_gap_count", "gap_fraction", "ambiguous_fraction", "conservation_score", "entropy_bits"], "properties": {"index": {"type": "integer"}, "reference_label": {"type": "string"}, "reference_residue": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "cells": {"type": "array", "items": {"$ref": "#/$defs/msa_cell"}}, "non_gap_count": {"type": "integer"}, "gap_fraction": {"type": "number"}, "ambiguous_fraction": {"type": "number"}, "conservation_score": {"type": "number"}, "entropy_bits": {"type": "number"}}},
+    "msa": {"type": "object", "additionalProperties": false, "required": ["sequences", "aligned_rows", "columns", "reference_structure_id", "algorithm", "provenance"], "properties": {"sequences": {"type": "array", "items": {"$ref": "#/$defs/msa_sequence"}}, "aligned_rows": {"type": "array", "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string"}}}, "columns": {"type": "array", "items": {"$ref": "#/$defs/msa_column"}}, "reference_structure_id": {"type": ["string", "null"]}, "algorithm": {"type": "string"}, "provenance": {"type": "array", "items": {"type": "string"}}}},
+    "interaction_record": {"type": "object", "additionalProperties": false, "required": ["structure_id", "interaction_type", "residue_a", "residue_b", "atom_a", "atom_b", "distance_angstrom", "angle_degrees", "ligand_or_metal_id", "evidence_mode"], "properties": {"structure_id": {"type": "string"}, "interaction_type": {"type": "string"}, "residue_a": {"$ref": "#/$defs/residue"}, "residue_b": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "atom_a": {"type": ["string", "null"]}, "atom_b": {"type": ["string", "null"]}, "distance_angstrom": {"type": ["number", "null"]}, "angle_degrees": {"type": ["number", "null"]}, "ligand_or_metal_id": {"type": ["string", "null"]}, "evidence_mode": {"type": "string"}}},
+    "interaction_key": {"type": "object", "additionalProperties": false, "required": ["interaction_type", "reference_position_a", "reference_position_b", "external_partner_id"], "properties": {"interaction_type": {"type": "string"}, "reference_position_a": {"type": "string"}, "reference_position_b": {"type": ["string", "null"]}, "external_partner_id": {"type": ["string", "null"]}}},
+    "interaction_difference": {"type": "object", "additionalProperties": false, "required": ["key", "change", "reference_record", "target_record"], "properties": {"key": {"$ref": "#/$defs/interaction_key"}, "change": {"type": "string"}, "reference_record": {"anyOf": [{"$ref": "#/$defs/interaction_record"}, {"type": "null"}]}, "target_record": {"anyOf": [{"$ref": "#/$defs/interaction_record"}, {"type": "null"}]}}},
+    "interaction_evidence": {"type": "object", "additionalProperties": false, "required": ["differences", "reference_interactions", "target_interactions"], "properties": {"differences": {"type": "array", "items": {"$ref": "#/$defs/interaction_difference"}}, "reference_interactions": {"type": "array", "items": {"$ref": "#/$defs/interaction_record"}}, "target_interactions": {"type": "array", "items": {"$ref": "#/$defs/interaction_record"}}}},
+    "interaction_list": {"type": "array", "items": {"anyOf": [{"$ref": "#/$defs/interaction_record"}, {"$ref": "#/$defs/interaction_difference"}]}},
+    "site_metric": {"type": "object", "additionalProperties": false, "required": ["site_id", "structure_id", "mapped_residue_count", "coverage_fraction", "global_frame_backbone_rmsd_angstrom", "site_fitted_backbone_rmsd_angstrom", "centroid_displacement_angstrom", "radius_of_gyration_angstrom", "atomic_envelope_volume_angstrom3", "sasa_angstrom2", "polar_residue_fraction", "charged_residue_fraction"], "properties": {"site_id": {"type": "string"}, "structure_id": {"type": "string"}, "mapped_residue_count": {"type": "integer"}, "coverage_fraction": {"type": "number"}, "global_frame_backbone_rmsd_angstrom": {"type": ["number", "null"]}, "site_fitted_backbone_rmsd_angstrom": {"type": ["number", "null"]}, "centroid_displacement_angstrom": {"type": ["number", "null"]}, "radius_of_gyration_angstrom": {"type": ["number", "null"]}, "atomic_envelope_volume_angstrom3": {"type": ["number", "null"]}, "sasa_angstrom2": {"type": ["number", "null"]}, "polar_residue_fraction": {"type": ["number", "null"]}, "charged_residue_fraction": {"type": ["number", "null"]}}},
+    "site_evidence": {"type": "object", "additionalProperties": false, "required": ["metrics"], "properties": {"metrics": {"type": "array", "items": {"$ref": "#/$defs/site_metric"}}}},
+    "distance_map": {"type": "object", "additionalProperties": false, "required": ["reference_positions", "reference_distances_angstrom", "target_distances_angstrom", "delta_angstrom", "valid_mask"], "properties": {"reference_positions": {"type": "array", "items": {"type": "string"}}, "reference_distances_angstrom": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}}, "target_distances_angstrom": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}}, "delta_angstrom": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}}, "valid_mask": {"type": "array", "items": {"type": "array", "items": {"type": "boolean"}}}}},
+    "sequence_evidence": {"type": "object", "additionalProperties": false, "required": ["reference_one_letter", "target_one_letter", "alignment_index", "sequence_identity", "conservation_fraction", "entropy_bits", "gap_fraction", "ambiguous_fraction", "source_refs"], "properties": {"reference_one_letter": {"type": ["string", "null"]}, "target_one_letter": {"type": ["string", "null"]}, "alignment_index": {"type": "integer"}, "sequence_identity": {"type": ["number", "null"]}, "conservation_fraction": {"type": ["number", "null"]}, "entropy_bits": {"type": ["number", "null"]}, "gap_fraction": {"type": ["number", "null"]}, "ambiguous_fraction": {"type": ["number", "null"]}, "source_refs": {"type": "array", "items": {"$ref": "#/$defs/sequence_ref"}}}},
+    "structure_evidence": {"type": "object", "additionalProperties": false, "required": ["ca_displacement_angstrom", "backbone_rmsd_angstrom", "sidechain_rmsd_angstrom", "all_heavy_atom_rmsd_angstrom", "sasa_reference_angstrom2", "sasa_target_angstrom2", "available"], "properties": {"ca_displacement_angstrom": {"type": ["number", "null"]}, "backbone_rmsd_angstrom": {"type": ["number", "null"]}, "sidechain_rmsd_angstrom": {"type": ["number", "null"]}, "all_heavy_atom_rmsd_angstrom": {"type": ["number", "null"]}, "sasa_reference_angstrom2": {"type": ["number", "null"]}, "sasa_target_angstrom2": {"type": ["number", "null"]}, "available": {"type": "boolean"}}},
+    "evidence_quality": {"type": "object", "additionalProperties": false, "required": ["overall_status", "available_sections", "unavailable_sections", "warnings", "coverage_fraction", "source_count"], "properties": {"overall_status": {"type": "string"}, "available_sections": {"type": "array", "items": {"type": "string"}}, "unavailable_sections": {"type": "array", "items": {"type": "string"}}, "warnings": {"type": "array", "items": {"type": "string"}}, "coverage_fraction": {"type": ["number", "null"]}, "source_count": {"type": ["integer", "null"]}}},
+    "concordance_channel": {"type": "object", "additionalProperties": false, "required": ["availability", "measure", "units", "diagnostics", "provenance"], "properties": {"availability": {"$ref": "#/$defs/availability_value"}, "measure": {}, "units": {"type": "object"}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}, "provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]}}},
+    "concordance": {"type": "object", "additionalProperties": false, "required": ["geometry", "ligand_support", "parameter_persistence", "volume_sensitivity", "match_ambiguity", "qc", "interactions"], "properties": {"geometry": {"$ref": "#/$defs/concordance_channel"}, "ligand_support": {"$ref": "#/$defs/concordance_channel"}, "parameter_persistence": {"$ref": "#/$defs/concordance_channel"}, "volume_sensitivity": {"$ref": "#/$defs/concordance_channel"}, "match_ambiguity": {"$ref": "#/$defs/concordance_channel"}, "qc": {"$ref": "#/$defs/concordance_channel"}, "interactions": {"$ref": "#/$defs/concordance_channel"}}},
+    "evidence_card": {"type": "object", "additionalProperties": false, "required": ["reference_residue", "target_id", "residue_ref", "sequence", "structure", "interactions", "site", "quality", "schema_version", "provenance", "pocket_concordance"], "properties": {"reference_residue": {"anyOf": [{"$ref": "#/$defs/residue"}, {"type": "null"}]}, "target_id": {"type": "string"}, "residue_ref": {"$ref": "#/$defs/sequence_ref"}, "sequence": {"$ref": "#/$defs/sequence_evidence"}, "structure": {"$ref": "#/$defs/structure_evidence"}, "interactions": {"anyOf": [{"$ref": "#/$defs/interaction_evidence"}, {"type": "null"}]}, "site": {"$ref": "#/$defs/site_evidence"}, "quality": {"$ref": "#/$defs/evidence_quality"}, "schema_version": {"type": "string"}, "provenance": {"type": "array", "items": {"type": "string"}}, "pocket_concordance": {"anyOf": [{"$ref": "#/$defs/concordance"}, {"type": "null"}]}}},
+    "pocket_geometry": {"type": "object", "additionalProperties": false, "required": ["minimum_alpha_sphere_radius_angstrom", "maximum_alpha_sphere_radius_angstrom", "probe_radius_angstrom", "lining_contact_slack_angstrom"], "properties": {"minimum_alpha_sphere_radius_angstrom": {"type": "number"}, "maximum_alpha_sphere_radius_angstrom": {"type": "number"}, "probe_radius_angstrom": {"type": "number"}, "lining_contact_slack_angstrom": {"type": "number"}}},
+    "pocket_settings": {"type": "object", "additionalProperties": false, "required": ["geometry", "cluster_distance_padding_angstrom", "solvent_grid_spacing_angstrom", "solvent_boundary_margin_angstrom", "minimum_cluster_size", "maximum_candidates", "max_atom_count", "max_estimated_simplices", "max_solvent_grid_cells", "max_clearance_atom_checks", "max_solvent_raster_cells"], "properties": {"geometry": {"$ref": "#/$defs/pocket_geometry"}, "cluster_distance_padding_angstrom": {"type": "number"}, "solvent_grid_spacing_angstrom": {"type": "number"}, "solvent_boundary_margin_angstrom": {"type": "number"}, "minimum_cluster_size": {"type": "integer"}, "maximum_candidates": {"type": "integer"}, "max_atom_count": {"type": "integer"}, "max_estimated_simplices": {"type": "integer"}, "max_solvent_grid_cells": {"type": "integer"}, "max_clearance_atom_checks": {"type": "integer"}, "max_solvent_raster_cells": {"type": "integer"}}},
+    "pocket_sphere": {"type": "object", "additionalProperties": false, "required": ["center_xyz", "radius_angstrom", "touching_atom_ids", "lining_residues", "source_simplex_atom_ids", "sphere_id"], "properties": {"center_xyz": {"$ref": "#/$defs/point"}, "radius_angstrom": {"type": "number"}, "touching_atom_ids": {"type": "array", "items": {"type": "string"}}, "lining_residues": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "source_simplex_atom_ids": {"type": "array", "items": {"type": "string"}}, "sphere_id": {"type": "string"}}},
+    "pocket_lineage": {"type": "object", "additionalProperties": false, "required": ["source_content_id", "selection_id"], "properties": {"source_content_id": {"type": "string"}, "selection_id": {"type": "string"}}},
+    "pocket_candidate": {"type": "object", "additionalProperties": false, "required": ["alpha_spheres", "centroid_xyz", "lining_residues", "touching_atom_ids", "candidate_id", "lineage"], "properties": {"alpha_spheres": {"type": "array", "items": {"$ref": "#/$defs/pocket_sphere"}}, "centroid_xyz": {"$ref": "#/$defs/point"}, "lining_residues": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "touching_atom_ids": {"type": "array", "items": {"type": "string"}}, "candidate_id": {"type": "string"}, "lineage": {"$ref": "#/$defs/pocket_lineage"}}},
+    "pocket_detection_result": {"type": "object", "additionalProperties": false, "required": ["availability", "spheres", "diagnostics"], "properties": {"availability": {"$ref": "#/$defs/availability_value"}, "spheres": {"type": "array", "items": {"$ref": "#/$defs/pocket_sphere"}}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}}},
+    "pocket_detection": {"type": "object", "additionalProperties": false, "required": ["role", "availability", "detection", "candidates", "settings", "diagnostics", "counts", "provenance"], "properties": {"role": {"type": "string"}, "availability": {"$ref": "#/$defs/availability_value"}, "detection": {"anyOf": [{"$ref": "#/$defs/pocket_detection_result"}, {"type": "null"}]}, "candidates": {"type": "array", "items": {"$ref": "#/$defs/pocket_candidate"}}, "settings": {"anyOf": [{"$ref": "#/$defs/pocket_settings"}, {"type": "null"}]}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}, "counts": {"type": "object"}, "provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]}}},
+    "pocket_volume_block": {"type": "object", "additionalProperties": false, "required": ["voxel_count", "volume_angstrom3", "grid_shape"], "properties": {"voxel_count": {"type": "integer"}, "volume_angstrom3": {"type": "number"}, "grid_shape": {"type": "array", "items": {"type": "integer"}}}},
+    "pocket_volume_grid": {"type": "object", "additionalProperties": false, "required": ["shape", "coarse_shape", "fine_shape", "origin_xyz", "phase", "sampling"], "properties": {"shape": {"type": ["array", "null"], "items": {"type": "integer"}}, "coarse_shape": {"type": ["array", "null"], "items": {"type": "integer"}}, "fine_shape": {"type": ["array", "null"], "items": {"type": "integer"}}, "origin_xyz": {"anyOf": [{"$ref": "#/$defs/point"}, {"type": "null"}]}, "phase": {"type": "string"}, "sampling": {"type": "string"}}},
+    "pocket_sensitivity": {"type": "object", "additionalProperties": false, "required": ["absolute_angstrom3", "relative_fraction"], "properties": {"absolute_angstrom3": {"type": ["number", "null"]}, "relative_fraction": {"type": ["number", "null"]}}},
+    "pocket_volume_settings": {"type": "object", "additionalProperties": false, "required": ["coarse_grid_spacing_angstrom", "fine_grid_spacing_angstrom", "boundary_margin_angstrom", "component_exclusion_policy", "max_voxel_count", "voxel_chunk_size", "max_sphere_count", "max_exclusion_atom_count", "max_sphere_voxel_checks", "max_exclusion_neighbor_checks", "radii_version", "grid_phase", "grid_sampling"], "properties": {"coarse_grid_spacing_angstrom": {"type": "number"}, "fine_grid_spacing_angstrom": {"type": "number"}, "boundary_margin_angstrom": {"type": "number"}, "component_exclusion_policy": {"type": "string"}, "max_voxel_count": {"type": "integer"}, "voxel_chunk_size": {"type": "integer"}, "max_sphere_count": {"type": "integer"}, "max_exclusion_atom_count": {"type": "integer"}, "max_sphere_voxel_checks": {"type": "integer"}, "max_exclusion_neighbor_checks": {"type": "integer"}, "radii_version": {"type": "string"}, "grid_phase": {"type": "string"}, "grid_sampling": {"type": "string"}}},
+    "pocket_volume_result": {"type": "object", "additionalProperties": false, "required": ["availability", "coarse_voxel_count", "fine_voxel_count", "coarse_volume_angstrom3", "fine_volume_angstrom3", "coarse", "fine", "sensitivity", "absolute_sensitivity_angstrom3", "relative_sensitivity", "rotation_error_bound_angstrom3", "grid", "units", "provenance_parameters", "provenance", "settings", "candidate_id", "compatibility_signature", "diagnostics"], "properties": {"availability": {"$ref": "#/$defs/availability_value"}, "coarse_voxel_count": {"type": ["integer", "null"]}, "fine_voxel_count": {"type": ["integer", "null"]}, "coarse_volume_angstrom3": {"type": ["number", "null"]}, "fine_volume_angstrom3": {"type": ["number", "null"]}, "coarse": {"$ref": "#/$defs/pocket_volume_block"}, "fine": {"$ref": "#/$defs/pocket_volume_block"}, "sensitivity": {"anyOf": [{"$ref": "#/$defs/pocket_sensitivity"}, {"type": "null"}]}, "absolute_sensitivity_angstrom3": {"type": ["number", "null"]}, "relative_sensitivity": {"type": ["number", "null"]}, "rotation_error_bound_angstrom3": {"type": ["number", "null"]}, "grid": {"$ref": "#/$defs/pocket_volume_grid"}, "units": {"type": "object"}, "provenance_parameters": {"type": "object"}, "provenance": {"anyOf": [{"$ref": "#/$defs/provenance"}, {"type": "null"}]}, "settings": {"anyOf": [{"$ref": "#/$defs/pocket_volume_settings"}, {"type": "null"}]}, "candidate_id": {"type": ["string", "null"]}, "compatibility_signature": {"type": "array"}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}}},
+    "pocket_volume": {"type": "object", "additionalProperties": false, "required": ["role", "availability", "result"], "properties": {"role": {"type": "string"}, "availability": {"$ref": "#/$defs/availability_value"}, "result": {"anyOf": [{"$ref": "#/$defs/pocket_volume_result"}, {"type": "null"}]}}},
+    "pocket_matching_settings": {"type": "object", "additionalProperties": false, "required": ["minimum_lining_jaccard", "maximum_centroid_distance_angstrom", "ambiguity_margin", "lining_weight", "centroid_weight", "maximum_candidate_count"], "properties": {"minimum_lining_jaccard": {"type": "number"}, "maximum_centroid_distance_angstrom": {"type": "number"}, "ambiguity_margin": {"type": "number"}, "lining_weight": {"type": "number"}, "centroid_weight": {"type": "number"}, "maximum_candidate_count": {"type": "integer"}}},
+    "pocket_match": {"type": "object", "additionalProperties": false, "required": ["state", "status", "reference_candidate", "target_candidate", "lining_jaccard", "lining_overlap_fraction", "centroid_distance_angstrom", "score", "alternative_score", "ambiguity_margin", "assignment_score", "alternative_assignment_score", "units", "diagnostics"], "properties": {"state": {"type": "string"}, "status": {"type": "string"}, "reference_candidate": {"anyOf": [{"$ref": "#/$defs/pocket_candidate"}, {"type": "null"}]}, "target_candidate": {"anyOf": [{"$ref": "#/$defs/pocket_candidate"}, {"type": "null"}]}, "lining_jaccard": {"type": ["number", "null"]}, "lining_overlap_fraction": {"type": ["number", "null"]}, "centroid_distance_angstrom": {"type": ["number", "null"]}, "score": {"type": ["number", "null"]}, "alternative_score": {"type": ["number", "null"]}, "ambiguity_margin": {"type": ["number", "null"]}, "assignment_score": {"type": ["number", "null"]}, "alternative_assignment_score": {"type": ["number", "null"]}, "units": {"type": "object"}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}}},
+    "pocket_matching": {"type": "object", "additionalProperties": false, "required": ["availability", "matches", "diagnostics", "settings", "transform", "optimal_score", "second_best_score"], "properties": {"availability": {"$ref": "#/$defs/availability_value"}, "matches": {"type": "array", "items": {"$ref": "#/$defs/pocket_match"}}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}, "settings": {"$ref": "#/$defs/pocket_matching_settings"}, "transform": {"$ref": "#/$defs/transform"}, "optimal_score": {"type": ["number", "null"]}, "second_best_score": {"type": ["number", "null"]}}},
+    "pocket_volume_comparison": {"type": "object", "additionalProperties": false, "required": ["availability", "delta_angstrom3", "relative_delta_fraction", "relative_delta", "reference_volume_angstrom3", "target_volume_angstrom3", "units", "compatibility_signature", "reference_sensitivity", "target_sensitivity", "provenance", "diagnostics"], "properties": {"availability": {"$ref": "#/$defs/availability_value"}, "delta_angstrom3": {"type": ["number", "null"]}, "relative_delta_fraction": {"type": ["number", "null"]}, "relative_delta": {"type": ["number", "null"]}, "reference_volume_angstrom3": {"type": ["number", "null"]}, "target_volume_angstrom3": {"type": ["number", "null"]}, "units": {"type": "object"}, "compatibility_signature": {"type": "array"}, "reference_sensitivity": {"anyOf": [{"$ref": "#/$defs/pocket_sensitivity"}, {"type": "null"}]}, "target_sensitivity": {"anyOf": [{"$ref": "#/$defs/pocket_sensitivity"}, {"type": "null"}]}, "provenance": {"type": "array", "items": {"$ref": "#/$defs/provenance"}}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}}},
+    "pocket_comparison_local_displacement": {"type": "object", "additionalProperties": false, "required": ["residue", "magnitude_angstrom"], "properties": {"residue": {"$ref": "#/$defs/residue"}, "magnitude_angstrom": {"type": "number"}}},
+    "pocket_comparison": {"type": "object", "additionalProperties": false, "required": ["availability", "match", "volume", "surface_delta_angstrom2", "relative_surface_delta_fraction", "reference_surface_area_angstrom2", "target_surface_area_angstrom2", "reference_surface_method", "target_surface_method", "reference_surface_provenance", "target_surface_provenance", "reference_surface_units", "target_surface_units", "lining_residue_conserved", "lining_residue_gains", "lining_residue_losses", "associated_mutations", "interaction_changes", "local_displacement_angstrom", "ca_displacement_angstrom", "sidechain_displacement_angstrom", "local_displacements", "qc_availability", "qc_diagnostics", "diagnostics", "units"], "properties": {"availability": {"$ref": "#/$defs/availability_value"}, "match": {"$ref": "#/$defs/pocket_match"}, "volume": {"anyOf": [{"$ref": "#/$defs/pocket_volume_comparison"}, {"type": "null"}]}, "surface_delta_angstrom2": {"type": ["number", "null"]}, "relative_surface_delta_fraction": {"type": ["number", "null"]}, "reference_surface_area_angstrom2": {"type": ["number", "null"]}, "target_surface_area_angstrom2": {"type": ["number", "null"]}, "reference_surface_method": {"type": ["string", "null"]}, "target_surface_method": {"type": ["string", "null"]}, "reference_surface_provenance": {"type": ["object", "null"]}, "target_surface_provenance": {"type": ["object", "null"]}, "reference_surface_units": {"type": ["object", "null"]}, "target_surface_units": {"type": ["object", "null"]}, "lining_residue_conserved": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "lining_residue_gains": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "lining_residue_losses": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "associated_mutations": {"type": "array", "items": {"$ref": "#/$defs/mutation"}}, "interaction_changes": {"type": "array", "items": {"$ref": "#/$defs/interaction_difference"}}, "local_displacement_angstrom": {"type": ["number", "null"]}, "ca_displacement_angstrom": {"type": ["number", "null"]}, "sidechain_displacement_angstrom": {"type": ["number", "null"]}, "local_displacements": {"type": "array", "items": {"$ref": "#/$defs/pocket_comparison_local_displacement"}}, "qc_availability": {"type": ["string", "null"]}, "qc_diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}, "units": {"type": "object"}}},
+    "pocket_lining": {"type": "object", "additionalProperties": false, "required": ["role", "candidate_id", "residues", "availability", "diagnostics", "units"], "properties": {"role": {"type": "string"}, "candidate_id": {"type": ["string", "null"]}, "residues": {"type": "array", "items": {"$ref": "#/$defs/residue"}}, "availability": {"$ref": "#/$defs/availability_value"}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}, "units": {"type": "object"}}},
+    "chain_locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["author_chain_id", "label_chain_id", "entity_id"],
+      "properties": {
+        "author_chain_id": {"type": ["string", "null"]},
+        "label_chain_id": {"type": ["string", "null"]},
+        "entity_id": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+      },
+      "anyOf": [
+        {"properties": {"author_chain_id": {"type": "string"}}},
+        {"properties": {"label_chain_id": {"type": "string"}}},
+        {"properties": {"entity_id": {"type": "string", "minLength": 1}}}
+      ]
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_id", "format", "model_id", "author_chain_ids", "label_chain_ids", "altloc_policy", "assembly_scope", "chain_locators", "selection_id"],
+      "properties": {
+        "content_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "format": {"type": "string", "enum": ["pdb", "mmcif"]},
+        "model_id": {"type": "string", "minLength": 1},
+        "author_chain_ids": {"type": "array", "items": {"type": "string"}},
+        "label_chain_ids": {"type": "array", "items": {"type": "string"}},
+        "altloc_policy": {"type": "string"},
+        "assembly_scope": {"type": "string"},
+        "chain_locators": {"type": "array", "items": {"$ref": "#/$defs/chain_locator"}},
+        "selection_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

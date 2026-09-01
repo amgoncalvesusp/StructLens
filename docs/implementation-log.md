@@ -473,3 +473,30 @@
   `open-webui 0.9.2` versus `onnxruntime 1.20.1`; neither is a StructLens
   dependency, so clean build-environment verification remains assigned to
   Tasks 17/18. The next accepted item is Task 11.
+- 2026-08-31 Task 11 (report persistence and exports): added one canonical,
+  schema-valid, byte-deterministic `AnalysisReport` persistence boundary and
+  faithful JSON, CSV, TSV, and XLSX exports. Content-addressed source snapshots
+  retain logical and raw identities separately, so reference and target can
+  share logical content while preserving distinct raw captures without storage
+  collisions; report-role binding, tamper detection, immutable snapshot/report
+  storage, project migration, and persisted report-reference verification all
+  fail closed. CSV/TSV/XLSX retain complete typed pocket detection, candidate,
+  volume, matching, comparison, lining-residue, aggregate-unit, concordance,
+  diagnostic, status, and provenance evidence without inventing missing values.
+- 2026-08-31 Task 11 integrity hardening: five independent review/fix rounds
+  closed the bundled JSON Schema and dependency-free fallback at nested report,
+  mutation-residue, and chain-locator boundaries; preserved same-content,
+  distinct-raw gzip evidence; rejected same-inode mutation during bounded reads;
+  and held stable directory resolution throughout atomic writes using supported
+  descriptor-relative operations or Windows directory handles. The final Luna
+  and Terra reviews found no remaining CRITICAL/HIGH issue.
+- 2026-08-31 accepted Task 11 gate: the final focused run reported 144 passed
+  and 1 privilege-dependent Windows directory-symlink test skipped; the full
+  suite reported 810 passed and 1 skipped. Per-module branch-aware coverage was
+  91-100% across the new report, serialization, snapshot-I/O, XLSX, schema, and
+  safe-I/O modules. Ruff, scoped formatting, mypy across 163 source files,
+  `python -m pip_audit .`, diff, secret, and changed-file size checks passed.
+  `python -m pip check` reports only a shared-interpreter conflict:
+  `open-webui 0.9.2` requires `onnxruntime==1.24.3`, while `onnxruntime 1.20.1`
+  is installed; neither package is a StructLens dependency. The next accepted
+  item is Task 12, the CLI workflow.

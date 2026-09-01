@@ -40,6 +40,7 @@ from structlens.core.provenance import MethodProvenance
 from structlens.core.quality import StructureQualityReport
 from structlens.core.sites import SiteDefinition, SiteMetrics
 
+from .pockets import PocketReportSnapshot
 from .serialization import (
     JSONValue,
     canonical_bytes,
@@ -277,8 +278,14 @@ class DistanceMapSnapshot:
             raise TypeError("matrix must be a DistanceDifferenceMatrix")
         return cls(
             tuple(matrix.reference_positions),
-            cast(tuple[tuple[float, ...], ...], matrix_rows(matrix.reference_distances_angstrom, "reference_distances_angstrom")),
-            cast(tuple[tuple[float, ...], ...], matrix_rows(matrix.target_distances_angstrom, "target_distances_angstrom")),
+            cast(
+                tuple[tuple[float, ...], ...],
+                matrix_rows(matrix.reference_distances_angstrom, "reference_distances_angstrom"),
+            ),
+            cast(
+                tuple[tuple[float, ...], ...],
+                matrix_rows(matrix.target_distances_angstrom, "target_distances_angstrom"),
+            ),
             cast(tuple[tuple[float, ...], ...], matrix_rows(matrix.delta_angstrom, "delta_angstrom")),
             cast(tuple[tuple[bool, ...], ...], matrix_rows(matrix.valid_mask, "valid_mask", boolean=True)),
         )
@@ -317,11 +324,16 @@ class InputQualityBundle:
     target: StructureQualityReport
 
     def __post_init__(self) -> None:
-        if not isinstance(self.reference, StructureQualityReport) or not isinstance(self.target, StructureQualityReport):
+        if not isinstance(self.reference, StructureQualityReport) or not isinstance(
+            self.target, StructureQualityReport
+        ):
             raise TypeError("reference and target must be StructureQualityReport values")
 
     def to_json(self) -> dict[str, JSONValue]:
-        return {"reference": cast(JSONValue, self.reference.to_json()), "target": cast(JSONValue, self.target.to_json())}
+        return {
+            "reference": cast(JSONValue, self.reference.to_json()),
+            "target": cast(JSONValue, self.target.to_json()),
+        }
 
 
 def _availability(value: Availability | str, name: str) -> Availability:
@@ -389,10 +401,13 @@ class AnalysisReport:
     availability: SectionAvailability = field(default_factory=SectionAvailability)
     diagnostics: tuple[Diagnostic, ...] = ()
     provenance: MethodProvenance | None = None
+    pockets: PocketReportSnapshot | None = None
     report_id: str = field(init=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.reference_selection, InputSelection) or not isinstance(self.target_selection, InputSelection):
+        if not isinstance(self.reference_selection, InputSelection) or not isinstance(
+            self.target_selection, InputSelection
+        ):
             raise TypeError("reference_selection and target_selection must be InputSelection values")
         if not isinstance(self.input_quality, InputQualityBundle):
             raise TypeError("input_quality must be an InputQualityBundle")
@@ -443,6 +458,11 @@ class AnalysisReport:
         object.__setattr__(self, "diagnostics", diagnostics)
         if self.provenance is not None and not isinstance(self.provenance, MethodProvenance):
             raise TypeError("provenance must be MethodProvenance or None")
+        if self.pockets is not None and not isinstance(self.pockets, PocketReportSnapshot):
+            raise TypeError("pockets must be a PocketReportSnapshot or None")
+        if self.pockets is not None and self.pockets.availability is not self.availability.pockets:
+            raise ValueError("pockets availability is incoherent with its typed payload")
+        self._validate_pocket_lineage()
         self._validate_availability_coherence()
         self._validate_content_hashes()
         scientific = self._payload(include_report_id=False)
@@ -469,11 +489,14 @@ class AnalysisReport:
             ("sites", sites_present(self.sites)),
             ("distance_map", self.distance_map is not None),
             ("evidence_cards", bool(self.evidence_cards)),
+            ("pockets", self.pockets is not None),
         )
         for name, present in checks:
             state = getattr(self.availability, name)
             if state is Availability.AVAILABLE and not present:
                 raise ValueError(f"{name} availability is available but its typed payload is absent")
+            if name == "pockets":
+                continue
             if state is not Availability.AVAILABLE and present:
                 raise ValueError(f"{name} availability is {state.value} but its typed payload is present")
         vector_state = self.availability.displacement_vectors
@@ -490,13 +513,32 @@ class AnalysisReport:
         if input_quality_available and self.availability.input_quality is not Availability.AVAILABLE:
             raise ValueError("input_quality availability is not available but both input quality reports are available")
 
+    def _validate_pocket_lineage(self) -> None:
+        """Bind every pocket candidate to the report's selected structure."""
+
+        if self.pockets is None:
+            return
+        selections = {"reference": self.reference_selection, "target": self.target_selection}
+        for detection in self.pockets.detections:
+            selection = selections[detection.role]
+            for candidate in detection.candidates:
+                if (
+                    candidate.source_content_id != selection.content_id
+                    or candidate.selection_id != selection.selection_id
+                ):
+                    raise ValueError(f"{detection.role} pocket candidate lineage is incoherent with report selection")
+
     def _payload(self, *, include_report_id: bool) -> dict[str, JSONValue]:
         interactions: JSONValue
         if isinstance(self.interactions, InteractionEvidence):
             interactions = {
                 "differences": [interaction_json(item) for item in self.interactions.differences],
-                "reference_interactions": [interaction_record_json(item) for item in self.interactions.reference_interactions],
-                "target_interactions": [interaction_record_json(item) for item in self.interactions.target_interactions],
+                "reference_interactions": [
+                    interaction_record_json(item) for item in self.interactions.reference_interactions
+                ],
+                "target_interactions": [
+                    interaction_record_json(item) for item in self.interactions.target_interactions
+                ],
             }
         elif self.interactions is None:
             interactions = None
@@ -525,6 +567,7 @@ class AnalysisReport:
             "availability": self.availability.to_json(),
             "diagnostics": [cast(JSONValue, item.to_json()) for item in self.diagnostics],
             "provenance": cast(JSONValue, self.provenance.to_json()) if self.provenance is not None else None,
+            "pockets": cast(JSONValue, self.pockets.to_json()) if self.pockets is not None else None,
         }
         if include_report_id:
             payload["report_id"] = self.report_id
