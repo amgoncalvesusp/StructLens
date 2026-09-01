@@ -500,3 +500,39 @@
   `open-webui 0.9.2` requires `onnxruntime==1.24.3`, while `onnxruntime 1.20.1`
   is installed; neither package is a StructLens dependency. The next accepted
   item is Task 12, the CLI workflow.
+- 2026-09-01 Task 12 (CLI workflow): added report-driven `compare`, `qc`,
+  `pockets`, and `pocket-compare` commands. The CLI validates structure paths,
+  model/chain/altloc/assembly selection, legacy arguments, output aliases, and
+  supported PDB/ENT/mmCIF plus gzip inputs at the boundary, then constructs
+  application-service requests rather than invoking scientific core functions.
+  One canonical `AnalysisReport` supplies the comparison and pocket-comparison
+  projections; JSON retains the complete typed reports, selections, source
+  hashes, detections, measurements, units, diagnostics, and provenance. Human
+  output is deterministic, expected scientific negative states remain
+  successful, and invalid input, detection, or volume failures produce useful
+  stderr and a nonzero exit without swallowing programming errors.
+- 2026-09-01 Task 12 schema hardening: a real PDB workflow exposed that valid
+  all-ambiguous MSA columns use explicit null conservation/entropy values. The
+  bundled schema and fallback now preserve those values as null rather than
+  rejecting them or inventing zero. A dependency-free interpreter validates
+  the exact bundled schema subset before the existing semantic checks, so
+  environments without optional `jsonschema` still enforce local references,
+  nested required/additional properties, JSON scalar types, bounds, patterns,
+  enums, nullable fields, finite numbers, and fail-closed unsupported or cyclic
+  schemas. Differential tests cover analysis, QC, diagnostics, provenance, MSA,
+  interactions, sites, vectors, Evidence Cards, and pockets.
+- 2026-09-01 accepted Task 12 gate after three review/fix rounds: the combined
+  CLI/schema focused run reported 107 passed. CLI modules reached 93-100%
+  branch-aware coverage and the new schema interpreter reached 91%. The full
+  suite reported 914 passed and 1 existing Windows symlink-privilege skip.
+  Ruff, scoped formatting, mypy across 167 source files, `python -m pip_audit
+  .`, diff, secret, and changed-file size checks passed. The installed
+  `structlens --help` entry point, a cross-process real-PDB canonical export,
+  and a real deterministic invalid-input pocket-comparison evidence export all
+  passed. Independent Luna edge-case and Terra scientific/integration reviews
+  accepted the task with no findings. `python -m pip check` still reflects the
+  shared environment rather than the project audit: missing optional
+  `freesasa`, installed `Pillow 12.1.1` below StructLens' declared
+  `Pillow>=12.3.0`, and an unrelated `open-webui`/`onnxruntime` conflict. Clean
+  frozen-environment repair remains assigned to packaging Tasks 17/18. The next
+  accepted item is Task 13, GUI architecture and the completed v0.3 flow.

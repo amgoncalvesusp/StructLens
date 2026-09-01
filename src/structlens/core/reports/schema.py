@@ -242,6 +242,15 @@ def validate_analysis_report_payload(payload: Mapping[str, Any] | str | bytes) -
         # The structural checks above are the required fallback for minimal
         # installations; the package itself does not require jsonschema.
         pass
+    # Validate the same wire contract without relying on jsonschema.  This is
+    # intentionally run even when the optional validator is installed so the
+    # fallback path remains continuously exercised against the bundled schema.
+    from .schema_interpreter import SchemaInterpreterError, validate_instance
+
+    try:
+        validate_instance(candidate, load_analysis_report_schema())
+    except SchemaInterpreterError as exc:
+        raise AnalysisReportSchemaError(f"Analysis-report schema validation failed: {exc}") from exc
     # Keep the public contract identical with and without the optional
     # jsonschema dependency.  In particular, its deliberately generic object
     # branches (MSA, interactions, and evidence measures) are closed here.
@@ -436,6 +445,11 @@ def _validate_fallback_residue_or_none(value: object, name: str) -> None:
         _validate_fallback_residue(value, name)
 
 
+def _validate_fallback_number_or_none(value: object, name: str) -> None:
+    if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):
+        raise AnalysisReportSchemaError(f"{name} must be a number or null")
+
+
 def _validate_fallback_msa(value: object) -> None:
     msa = _validate_fallback_object(value, "msa", _MSA_FIELDS, required=_MSA_FIELDS)
     for index, raw_sequence in enumerate(msa["sequences"]):
@@ -460,6 +474,8 @@ def _validate_fallback_msa(value: object) -> None:
         column = _validate_fallback_object(
             raw_column, f"msa.columns[{index}]", _MSA_COLUMN_FIELDS, required=_MSA_COLUMN_FIELDS
         )
+        _validate_fallback_number_or_none(column["conservation_score"], f"msa.columns[{index}].conservation_score")
+        _validate_fallback_number_or_none(column["entropy_bits"], f"msa.columns[{index}].entropy_bits")
         _validate_fallback_residue_or_none(column["reference_residue"], f"msa.columns[{index}].reference_residue")
         for cell_index, raw_cell in enumerate(column["cells"]):
             cell = _validate_fallback_object(
