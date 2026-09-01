@@ -20,7 +20,12 @@ from .models import (
     StructureFormat,
     StructureMetadata,
 )
-from .normalize import load_structure, load_structure_evidence, load_structure_legacy
+from .normalize import (
+    load_structure,
+    load_structure_evidence,
+    load_structure_legacy,
+    load_structure_legacy_snapshot,
+)
 from .pdb import load_pdb
 from .snapshot import SourceSnapshot, capture_snapshot
 
@@ -51,4 +56,5 @@ __all__ = [
     "load_structure",
     "load_structure_evidence",
     "load_structure_legacy",
+    "load_structure_legacy_snapshot",
 ]

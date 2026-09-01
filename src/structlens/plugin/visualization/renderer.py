@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Protocol, TypeVar
@@ -65,9 +66,7 @@ class VisualizationRenderer:
         correspondences: Sequence[_Correspondence],
         state: VisualizationState,
     ) -> tuple[_Correspondence, ...]:
-        return tuple(
-            item for item in correspondences if _matches(item, state.highlight_filter)
-        )
+        return tuple(item for item in correspondences if _matches(item, state.highlight_filter))
 
     def apply_preset(self, preset: str) -> VisualizationState:
         presets = {
@@ -87,9 +86,7 @@ class VisualizationRenderer:
                 highlight_filter=HighlightFilter.DISPLACEMENT,
                 color_mode=ColorMode.CA_DISPLACEMENT,
             ),
-            "Active site": VisualizationState(
-                preset="Active site", highlight_filter=HighlightFilter.KEY
-            ),
+            "Active site": VisualizationState(preset="Active site", highlight_filter=HighlightFilter.KEY),
             "Presentation": VisualizationState(
                 preset="Presentation",
                 representation=Representation.CARTOON_STICKS,
@@ -99,6 +96,49 @@ class VisualizationRenderer:
         if preset not in presets:
             raise ValueError(f"Unknown StructLens visualization preset: {preset}")
         return replace(presets[preset])
+
+
+def visualization_state_from_mapping(payload: object) -> VisualizationState:
+    """Parse persisted visualization controls into a closed typed value."""
+
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, Mapping):
+        raise TypeError("visualization state must be an object")
+
+    def boolean(key: str, default: bool) -> bool:
+        value = payload.get(key, default)
+        if not isinstance(value, bool):
+            raise TypeError(f"{key} must be a boolean")
+        return value
+
+    radius_value = payload.get("local_radius_angstrom", 5.0)
+    if isinstance(radius_value, bool):
+        raise TypeError("local_radius_angstrom must be numeric")
+    radius = float(radius_value)
+    if not math.isfinite(radius) or not 0.1 <= radius <= 20.0:
+        raise ValueError("local_radius_angstrom must be finite and between 0.1 and 20.0")
+    preset = str(payload.get("preset", "Minimal"))
+    allowed_presets = {
+        "Minimal",
+        "Publication",
+        "Mutation focus",
+        "Structural deviation",
+        "Active site",
+        "Presentation",
+    }
+    if preset not in allowed_presets:
+        raise ValueError("preset is not supported")
+    return VisualizationState(
+        highlight_filter=HighlightFilter(str(payload.get("highlight_filter", HighlightFilter.ALL.value))),
+        color_mode=ColorMode(str(payload.get("color_mode", ColorMode.MUTATION_STATUS.value))),
+        representation=Representation(str(payload.get("representation", Representation.STICKS.value))),
+        show_labels=boolean("show_labels", False),
+        show_reference=boolean("show_reference", True),
+        show_target=boolean("show_target", True),
+        local_radius_angstrom=radius,
+        preset=preset,
+    )
 
 
 def _matches(item: VisualizableCorrespondence, filter_value: HighlightFilter) -> bool:
@@ -133,4 +173,5 @@ __all__ = [
     "Representation",
     "VisualizationRenderer",
     "VisualizationState",
+    "visualization_state_from_mapping",
 ]

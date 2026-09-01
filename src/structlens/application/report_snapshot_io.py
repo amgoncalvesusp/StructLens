@@ -298,10 +298,18 @@ def verify_report_inputs(
             raise ValueError(f"{role} report selection does not match report provenance content hash")
 
     evidence: dict[str, SourceSnapshot] = {}
-    for snapshot in snapshots:
+    for snapshot_index, snapshot in enumerate(snapshots):
         if not isinstance(snapshot, SourceSnapshot):
             raise TypeError("snapshots must contain SourceSnapshot values")
         matching_roles = [role for role in roles if expected[role] == (snapshot.content_id, snapshot.raw_sha256)]
+        if len(matching_roles) > 1:
+            named_roles = [
+                role for role in matching_roles if selections[roles.index(role)].display_name == snapshot.display_name
+            ]
+            if named_roles:
+                matching_roles = named_roles
+            elif snapshot_index < len(roles) and roles[snapshot_index] in matching_roles:
+                matching_roles = [roles[snapshot_index]]
         if not matching_roles:
             if any(selection.content_id == snapshot.content_id for selection in selections):
                 raise ValueError("multiple conflicting snapshots supplied for one source role")

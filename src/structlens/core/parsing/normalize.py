@@ -110,12 +110,25 @@ def load_structure_legacy(path: Path) -> ProteinStructure:
     """Load v0.3-compatible all-model and non-water HETATM records."""
 
     snapshot = capture_snapshot(path)
+    return load_structure_legacy_snapshot(snapshot, path=path)
+
+
+def load_structure_legacy_snapshot(
+    snapshot: SourceSnapshot,
+    *,
+    path: str | Path | None = None,
+) -> ProteinStructure:
+    """Return the compatibility structure while parsing captured bytes only."""
+
+    if not isinstance(snapshot, SourceSnapshot):
+        raise TypeError("snapshot must be a SourceSnapshot")
     structure_id = _structure_id(snapshot.display_name, snapshot.logical_format)
     if snapshot.logical_format == "pdb":
         structure, atom_metadata, _, _, _ = _parse_pdb(snapshot, structure_id, ParseLimits())
     else:
         structure, atom_metadata, _, _, _ = _parse_mmcif(snapshot, structure_id, ParseLimits())
-    return _normalize_legacy_structure(structure, structure_id, path, atom_metadata)
+    display_path = Path(path) if path is not None else Path(snapshot.display_name)
+    return _normalize_legacy_structure(structure, structure_id, display_path, atom_metadata)
 
 
 def load_structure_evidence(
@@ -389,7 +402,9 @@ def _normalize_structure(
     analyzed_label = tuple(
         label for label in dict.fromkeys(chain.label_chain_id for chain in chains) if label is not None
     )
-    analyzed_entities = tuple(entity for entity in dict.fromkeys(chain.entity_id for chain in chains) if entity is not None)
+    analyzed_entities = tuple(
+        entity for entity in dict.fromkeys(chain.entity_id for chain in chains) if entity is not None
+    )
     metadata = StructureMetadata(
         format=selection.format,
         selected_model=selection.model_id,
