@@ -124,6 +124,11 @@ class SourceMixin(QtMixinContext):
             return str(object_name)
         except Exception:
             return None
+        finally:
+            # The logical snapshot is already retained in LoadedSource; the
+            # materialized coordinate file must not survive a load failure or
+            # wait for panel destruction.
+            temporary.unlink(missing_ok=True)
 
     def _clear_source(self, role: str) -> None:
         if role == "reference":
@@ -172,8 +177,9 @@ class SourceMixin(QtMixinContext):
             self._temporary_paths.append(temporary)
             self._load_source(role, temporary)
         except Exception as exc:
-            temporary.unlink(missing_ok=True)
             self._show_error(f"Could not read PyMOL object {selected}: {exc}")
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _load_named_pymol_object(self, role: str, object_name: str) -> bool:
         save = getattr(self.command, "save", None)
@@ -186,8 +192,9 @@ class SourceMixin(QtMixinContext):
             self._temporary_paths.append(temporary)
             return self._load_source(role, temporary, pymol_object_name=object_name)
         except Exception:
-            temporary.unlink(missing_ok=True)
             return False
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _load_file_into_pymol(self, role: str, path: Path) -> str | None:
         if self.command is None:

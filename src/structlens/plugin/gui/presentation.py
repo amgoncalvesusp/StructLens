@@ -394,6 +394,12 @@ def present_report(report: AnalysisReport) -> ReportPresentation:
 
 def _interaction_rows(report: AnalysisReport) -> list[Mapping[str, Any]]:
     value = report.interactions
+    if isinstance(value, InteractionEvidence) and not value.differences:
+        # A zero-difference comparison still contains native observations.  A
+        # difference-only projection would make valid geometry disappear.
+        return [
+            _raw_interaction_row("reference", record) for record in value.reference_interactions
+        ] + [_raw_interaction_row("target", record) for record in value.target_interactions]
     records = value.differences if isinstance(value, InteractionEvidence) else value or ()
     rows: list[Mapping[str, Any]] = []
     for item in records:
@@ -425,6 +431,35 @@ def _interaction_rows(report: AnalysisReport) -> list[Mapping[str, Any]]:
             )
         rows.append(row)
     return rows
+
+
+def _raw_interaction_row(role: str, record: Any) -> Mapping[str, Any]:
+    """Project one direct observation without manufacturing a comparison."""
+
+    return {
+        "key": None,
+        "change": "reference_observation" if role == "reference" else "target_observation",
+        "interaction_type": getattr(record, "interaction_type", None),
+        "reference_position_a": getattr(record, "residue_a", None) if role == "reference" else None,
+        "reference_position_b": getattr(record, "residue_b", None) if role == "reference" else None,
+        "external_partner_id": getattr(record, "ligand_or_metal_id", None),
+        "distance_unit": "Å",
+        "angle_unit": "degrees",
+        "reference_distance_angstrom": getattr(record, "distance_angstrom", None) if role == "reference" else None,
+        "target_distance_angstrom": getattr(record, "distance_angstrom", None) if role == "target" else None,
+        "reference_angle_degrees": getattr(record, "angle_degrees", None) if role == "reference" else None,
+        "target_angle_degrees": getattr(record, "angle_degrees", None) if role == "target" else None,
+        "reference_residue_a": getattr(record, "residue_a", None) if role == "reference" else None,
+        "target_residue_a": getattr(record, "residue_a", None) if role == "target" else None,
+        "reference_residue_b": getattr(record, "residue_b", None) if role == "reference" else None,
+        "target_residue_b": getattr(record, "residue_b", None) if role == "target" else None,
+        "reference_atom_a": getattr(record, "atom_a", None) if role == "reference" else None,
+        "target_atom_a": getattr(record, "atom_a", None) if role == "target" else None,
+        "reference_atom_b": getattr(record, "atom_b", None) if role == "reference" else None,
+        "target_atom_b": getattr(record, "atom_b", None) if role == "target" else None,
+        "reference_evidence_mode": getattr(record, "evidence_mode", None) if role == "reference" else None,
+        "target_evidence_mode": getattr(record, "evidence_mode", None) if role == "target" else None,
+    }
 
 
 def _site_rows(report: AnalysisReport) -> list[Mapping[str, Any]]:

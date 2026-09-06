@@ -11,6 +11,7 @@ from .qt_presentation_mixin import PresentationMixin
 from .qt_reports_mixin import ReportMixin
 from .qt_shell_mixin import ShellMixin
 from .qt_sources_mixin import SourceMixin
+from .qt_task14_pages_mixin import Task14PageMixin
 from .qt_visualization_mixin import VisualizationMixin
 
 
@@ -30,6 +31,7 @@ def build_panel(
 
 class PanelController(
     ShellMixin,
+    Task14PageMixin,
     PageMixin,
     PresentationMixin,
     SourceMixin,

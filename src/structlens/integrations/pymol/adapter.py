@@ -53,7 +53,7 @@ class PyMOLAdapter:
 
         if self.command is None:
             return ""
-        name = selection_name(self.project_id, target_id, "focus")
+        name = self._unique_selection_name(target_id, "focus")
         get_view = getattr(self.command, "get_view", None)
         if get_view is not None:
             view = get_view()
@@ -162,7 +162,7 @@ class PyMOLAdapter:
             )
         if not selected:
             return
-        target_name = selection_name(self.project_id, target, f"{state.highlight_filter.value}_target")
+        target_name = self._unique_selection_name(target, f"{state.highlight_filter.value}_target")
         target_expression = _join_residues(item.target for item in selected)
         if state.show_target and target_expression:
             target_scope = self._create_view_object(
@@ -179,8 +179,8 @@ class PyMOLAdapter:
                     self._call("label", target_name, 'chain + ":" + resi + " " + resn')
 
         if state.show_reference:
-            reference_name = selection_name(
-                self.project_id, analysis.reference_id, f"{state.highlight_filter.value}_reference"
+            reference_name = self._unique_selection_name(
+                analysis.reference_id, f"{state.highlight_filter.value}_reference"
             )
             reference_expression = _join_residues(item.reference for item in selected)
             if reference_expression:
@@ -252,9 +252,36 @@ class PyMOLAdapter:
 
     def _unique_object_name(self, report_id: str, purpose: str) -> str:
         base = selection_name(self.project_id, report_id[:12], purpose)
+        return self._unique_name(base, self._existing_names(), self._owned_objects)
+
+    def _unique_selection_name(self, structure_id: str, purpose: str) -> str:
+        """Allocate a name absent from both PyMOL namespaces.
+
+        PyMOL permits object and selection identifiers to overlap, but doing so
+        makes cleanup and user state ambiguous.  The adapter therefore avoids
+        both namespaces and tracks only names it actually creates.
+        """
+
+        base = selection_name(self.project_id, structure_id, purpose)
+        return self._unique_name(base, self._existing_names(), self._owned_selections)
+
+    def _existing_names(self) -> set[str]:
         get_names = getattr(self.command, "get_names", None)
-        names = {str(name) for name in get_names("objects")} if get_names is not None else set()
+        if get_names is None:
+            return set()
+        names: set[str] = set()
+        for kind in ("objects", "selections"):
+            try:
+                names.update(str(name) for name in get_names(kind))
+            except Exception:
+                continue
         names.update(self._owned_objects)
+        names.update(self._owned_selections)
+        return names
+
+    @staticmethod
+    def _unique_name(base: str, existing: set[str], owned: set[str]) -> str:
+        names = set(existing) | set(owned)
         candidate = base
         suffix = 2
         while candidate in names:
@@ -275,7 +302,7 @@ class PyMOLAdapter:
                 entries = tuple(item for item in selected if item.status is status)
                 expression = _scoped_expression(_join_residues(item.target for item in entries), target_scope)
                 if expression:
-                    name = selection_name(self.project_id, result.target_id, f"{status.value}_target")
+                    name = self._unique_selection_name(result.target_id, f"{status.value}_target")
                     self._select(name, expression)
                     self._call("color", _STATUS_COLORS[status], name)
                     self._owned_selections.add(name)
@@ -287,11 +314,7 @@ class PyMOLAdapter:
         for item, value in zip(selected, values, strict=True):
             if item.target is None:
                 continue
-            name = selection_name(
-                self.project_id,
-                result.target_id,
-                f"row_{item.alignment_index}",
-            )
+            name = self._unique_selection_name(result.target_id, f"row_{item.alignment_index}")
             self._select(
                 name,
                 _scoped_expression(residue_selection(item.target), target_scope),
@@ -307,7 +330,7 @@ class PyMOLAdapter:
         create = getattr(self.command, "create", None)
         if create is None:
             return None
-        name = selection_name(self.project_id, structure_id, f"{purpose}_view")
+        name = self._unique_object_name(structure_id, f"{purpose}_view")
         create(name, expression)
         self._owned_objects.add(name)
         return name

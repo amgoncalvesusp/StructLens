@@ -42,6 +42,17 @@ class ReportMixin(QtMixinContext):
         self._clear_chart_layout(self.chart_preview_layout)
         self._clear_chart_layout(self.sequence_chart_layout)
         self._update_chart_export_state(self.chart_combo.currentText())
+        if hasattr(self, "quality_table"):
+            self.quality_table.setRowCount(0)
+            self.quality_summary_label.setText("No QC report loaded.")
+        if hasattr(self, "pocket_table"):
+            self.pocket_table.setRowCount(0)
+            self.pocket_status_label.setText("Pocket evidence appears after Compare.")
+            self.pocket_capability_label.setText("No canonical pocket report loaded.")
+            self.pocket_detail_label.setText("Select a pocket candidate to inspect volume evidence.")
+            self.pocket_detect_button.setEnabled(False)
+            self.pocket_measure_button.setEnabled(False)
+            self._pocket_presentation = None
 
     def _populate_result(self, result: AnalysisResult) -> None:
         self.result_decision.setText(

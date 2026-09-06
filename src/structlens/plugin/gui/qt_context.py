@@ -65,6 +65,7 @@ from structlens.resources.backends import backend_versions
 
 from .loaded_source import LoadedSource
 from .model import SCIENTIFIC_SECTIONS, WORKFLOW_HELP, CanonicalReportBinding, StructLensPanelModel
+from .pockets_page import PocketPresentation, PocketPresenter
 from .presentation import ReportPresentation, freeze_json, present_report, thaw_json
 from .project_transaction import (
     CanonicalProjectCandidate,
@@ -91,6 +92,7 @@ from .qt_pages import (
 )
 from .qt_reports import legacy_analysis, report_chart_datasets, report_site_metrics
 from .qt_sources import combo_data, find_residue, selected_chain, structure_meta
+from .quality_page import QualityFilter, QualityPresenter
 from .report_controller import AnalysisReportController
 from .selection_controller import AnalysisSelectionController
 
@@ -129,6 +131,7 @@ class QtMixinContext:
     _sequence_chart_canvas: Any
     _chart_canvas: Any
     _msa_chart_dataset: ChartDataset | None
+    _pocket_presentation: PocketPresentation | None
 
     def __getattr__(self, name: str) -> Any:
         raise AttributeError(name)
@@ -234,6 +237,7 @@ __all__ = [
     "Path",
     "ProjectState",
     "ProjectSchemaError",
+    "PocketPresenter",
     "ProteinChain",
     "ProteinStructure",
     "PyMOLAdapter",
@@ -265,6 +269,8 @@ __all__ = [
     "write_pymol_bundle",
     "bundled_executable",
     "QtMixinContext",
+    "QualityFilter",
+    "QualityPresenter",
     "_ANALYSIS_EXECUTOR",
     "_CHARTS_PAGE_INDEX",
     "_RESULTS_PAGE_INDEX",

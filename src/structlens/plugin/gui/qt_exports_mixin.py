@@ -496,14 +496,27 @@ class ExportMixin(QtMixinContext):
         if report is None and result is None:
             self._show_error("Run a comparison before exporting results.")
             return
+        binding: CanonicalReportBinding | None = None
+        if report is not None:
+            # Validate the local canonical binding before opening a save dialog
+            # or invoking any writer.  A stale render must have no external UI
+            # side effect and must remain recoverable from the current report.
+            try:
+                binding = self._canonical_binding()
+            except (OSError, ValueError) as exc:
+                message = str(exc)
+                if message == "canonical report has no verified source binding":
+                    self._show_error(f"Could not export {label}: {message}")
+                else:
+                    self._show_error(f"Could not export {label}: canonical report binding is invalid ({message})")
+                return
         path, _ = self.w.QFileDialog.getSaveFileName(
             self.widget, f"Export {label}", f"structlens_result.{suffix}", f"{label} (*.{suffix})"
         )
         if not path:
             return
         try:
-            if report is not None:
-                binding = self._canonical_binding()
+            if binding is not None:
                 exporter(binding.report, path, snapshots=binding.snapshots)
             else:
                 exporter(result, path)

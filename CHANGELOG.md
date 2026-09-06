@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Added canonical structural quality evidence with severity filtering and remediation details.
+- Added report-backed Sites & Pockets evidence with typed candidate matching states and dual-resolution volume units.
+- Hardened canonical request provenance validation, PyMOL ownership/collision handling, temporary-coordinate cleanup, and export validation order.
+- Added raw interaction evidence visibility and canonical pocket orchestration in pairwise reports.
+
 ## 0.1.5
 
 - Packages the PyQt5 GUI as an onedir application inside the Windows and Linux setups, avoiding slow one-file assembly while preserving double-click launch shortcuts.

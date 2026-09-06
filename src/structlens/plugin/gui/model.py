@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from structlens.application.dto import AnalysisReportRequest
+from structlens.application.report_provenance import report_provenance
 from structlens.application.report_snapshot_io import verify_report_inputs
 from structlens.core.models import AnalysisResult, AnalysisSelection
 from structlens.core.parsing import SourceSnapshot
@@ -74,10 +75,24 @@ class CanonicalReportBinding:
             raise TypeError("request must be an AnalysisReportRequest")
         snapshots = (request.reference_snapshot, request.target_snapshot)
         verify_report_inputs(report, snapshots, (), None)
+        # Keep selection identity errors specific and actionable before the
+        # broader request-provenance comparison below.
         if report.reference_selection.selection_id != request.reference_selection.selection_id:
             raise ValueError("reference request selection does not match the report")
         if report.target_selection.selection_id != request.target_selection.selection_id:
             raise ValueError("target request selection does not match the report")
+        stored_provenance = report.provenance
+        if stored_provenance is None:
+            raise ValueError("canonical report provenance is missing")
+        expected_provenance = report_provenance(request)
+        # Backend package versions describe the producer environment and are
+        # intentionally excluded: a persisted report must remain reopenable
+        # after a dependency upgrade.  Every request-derived field remains an
+        # exact comparison, including all thresholds, sites, manual pairs,
+        # vector limits, units, input hashes, and method identity.
+        for name in ("method_id", "method_version", "parameters", "units", "input_hashes", "analyzed_representation"):
+            if getattr(stored_provenance, name) != getattr(expected_provenance, name):
+                raise ValueError(f"canonical report provenance does not match request ({name})")
         projection = presentation if presentation is not None else present_report(report)
         if projection.report_id != report.report_id:
             raise ValueError("presentation does not match the report ID")

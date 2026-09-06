@@ -452,6 +452,7 @@ class PageMixin(QtMixinContext):
         self.site_metrics_table.setMinimumHeight(108)
         metrics_layout.addWidget(self.site_metrics_table)
         content.addWidget(metrics)
+        self._build_pocket_panel(content)
 
     # ---------------------------------------------------------- Visualization
 
@@ -713,6 +714,7 @@ class PageMixin(QtMixinContext):
         metric_layout.setColumnStretch(1, 1)
         content.addWidget(metrics)
         self._build_presentation_sections(content)
+        self._build_quality_panel(content)
         history = self.w.QGroupBox("Compiled analysis history", self.widget)
         history_layout = self.w.QVBoxLayout(history)
         history_layout.setContentsMargins(18, 16, 18, 16)

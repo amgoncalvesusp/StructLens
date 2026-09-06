@@ -36,6 +36,8 @@ class PresentationMixin(QtMixinContext):
         self._render_presentation_mutations(presentation)
         self._render_presentation_correspondences(presentation)
         self._render_presentation_sites(presentation)
+        self._render_quality()
+        self._render_pocket_presentation()
         self.evidence_card_label.setText(_section_text("Evidence Card", presentation.sections.evidence_cards))
         self._presentation_history = (*self._presentation_history, presentation)
         self._render_presentation_history()
@@ -195,6 +197,115 @@ class PresentationMixin(QtMixinContext):
         self._chart_datasets = datasets
         self._render_selected_chart()
         self._update_chart_export_state(self.chart_combo.currentText())
+
+    def _render_quality(self) -> None:
+        report = self.model.report
+        if report is None or not hasattr(self, "quality_table"):
+            return
+        try:
+            filter_value = QualityFilter(str(self.quality_filter.currentData() or QualityFilter.ALL.value))
+        except ValueError:
+            filter_value = QualityFilter.ALL
+        reference = QualityPresenter.present(report.input_quality.reference, filter_value=filter_value)
+        target = QualityPresenter.present(report.input_quality.target, filter_value=filter_value)
+        rows = tuple(("reference", row) for row in reference.rows) + tuple(
+            ("target", row) for row in target.rows
+        )
+        self.quality_table.setRowCount(len(rows))
+        for index, (role, row) in enumerate(rows):
+            location = row.residue_id or row.atom_id or "—"
+            values = (role, row.severity.value, row.code, location, row.message, row.remediation or "—")
+            for column, value in enumerate(values):
+                self.quality_table.setItem(index, column, self.w.QTableWidgetItem(str(value)))
+        summary = reference.summary
+        target_summary = target.summary
+        self.quality_summary_label.setText(
+            f"Reference: {summary.error_count} error(s), {summary.warning_count} warning(s), "
+            f"{summary.info_count} info · Target: {target_summary.error_count} error(s), "
+            f"{target_summary.warning_count} warning(s), {target_summary.info_count} info"
+        )
+
+    def _render_pocket_presentation(self) -> None:
+        report = self.model.report
+        if report is None or not hasattr(self, "pocket_table"):
+            return
+        snapshot = report.pockets
+        if snapshot is None:
+            self.pocket_table.setRowCount(0)
+            self.pocket_status_label.setText("Pocket evidence is unavailable in this canonical report.")
+            self.pocket_capability_label.setText("Rerun Compare after selecting both structures.")
+            self.pocket_detect_button.setEnabled(False)
+            self.pocket_measure_button.setEnabled(False)
+            return
+        presentation = PocketPresenter.present(snapshot)
+        self._pocket_presentation = presentation
+        self.pocket_table.setRowCount(len(presentation.candidate_rows))
+        for index, row in enumerate(presentation.candidate_rows):
+            detail = presentation.detail_for(row.candidate_id)
+            values = (
+                row.candidate_id[:12],
+                row.role,
+                row.state.value if row.state is not None else "unmatched",
+                str(row.sphere_count),
+                str(row.lining_residue_count),
+                _number(detail.fine_volume_angstrom3 if detail else None),
+                _number(detail.absolute_sensitivity_angstrom3 if detail else None),
+            )
+            for column, value in enumerate(values):
+                item = self.w.QTableWidgetItem(str(value))
+                item.setData(self.c.Qt.UserRole, row.candidate_id)
+                self.pocket_table.setItem(index, column, item)
+        self.pocket_status_label.setText(
+            f"{len(presentation.candidate_rows)} candidate(s) · {len(presentation.match_rows)} explicit match state(s) · "
+            f"report {report.report_id[:12]}"
+        )
+        capability = "; ".join(presentation.disabled_reasons)
+        if not capability:
+            capability = "Detection and volume measurement are read-only here; rerun Compare to compute a new canonical report."
+        self.pocket_capability_label.setText(
+            f"Status: {presentation.availability.value}. {capability}"
+        )
+        # These controls intentionally do not start a second GUI-local
+        # calculation.  The current report remains immutable; a new Compare
+        # is required to recompute detection or volume evidence.
+        self.pocket_detect_button.setEnabled(False)
+        self.pocket_measure_button.setEnabled(False)
+
+    def _select_pocket_candidate(self, row: int, _column: int) -> None:
+        presentation = getattr(self, "_pocket_presentation", None)
+        if presentation is None:
+            return
+        item = self.pocket_table.item(row, 0)
+        if item is None:
+            return
+        candidate_id = str(item.data(self.c.Qt.UserRole) or "")
+        detail = presentation.detail_for(candidate_id)
+        if detail is None:
+            return
+        self.pocket_detail_label.setText(
+            f"{detail.role.title()} candidate {detail.candidate_id[:12]} · "
+            f"coarse { _number(detail.coarse_volume_angstrom3)} Å³ · "
+            f"fine { _number(detail.fine_volume_angstrom3)} Å³ · "
+            f"sensitivity { _number(detail.absolute_sensitivity_angstrom3)} Å³\n"
+            f"{detail.method_explanation}"
+        )
+
+    def _request_pocket_detection(self) -> None:
+        if getattr(self, "_pocket_presentation", None) is None:
+            self._show_error("Pocket detection is unavailable until a canonical comparison report exists.")
+            return
+        self._set_status("Pocket detection is part of Compare; rerun Compare to change pocket settings.")
+
+    def _request_pocket_measurement(self) -> None:
+        presentation = getattr(self, "_pocket_presentation", None)
+        if presentation is None or not presentation.can_measure:
+            reasons = presentation
+            message = "Volume measurement is unavailable for the current pocket evidence."
+            if reasons is not None and reasons.disabled_reasons:
+                message = reasons.disabled_reasons[0]
+            self._show_error(message)
+            return
+        self._set_status("Volume measurements are included in the canonical pocket report.")
 
 
 def _section_text(title: str, section: Any) -> str:

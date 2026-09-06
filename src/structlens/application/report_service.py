@@ -15,6 +15,8 @@ from structlens.application.analysis_service import AnalysisService
 from structlens.application.dto import AnalysisReportRequest
 from structlens.application.interaction_service import InteractionAnalysisService
 from structlens.application.msa_service import MuscleAlignmentEngine
+from structlens.application.pocket_comparison_service import PocketComparisonService
+from structlens.application.pocket_service import PocketDetectionReport, StructurePocketService
 from structlens.application.quality_service import StructureQualityService
 from structlens.application.report_evidence import (
     evidence_cards as _evidence_cards,
@@ -100,6 +102,7 @@ from structlens.core.parsing import (
 from structlens.core.provenance import MethodProvenance
 from structlens.core.quality import StructureQualityReport
 from structlens.core.reports import AnalysisReport, AnalysisSnapshot, InputQualityBundle, SectionAvailability
+from structlens.core.reports.pockets import PocketDetectionSnapshot, PocketReportSnapshot, PocketVolumeSnapshot
 from structlens.core.sites import SiteDefinition, SiteMetrics
 
 _SectionValue = TypeVar("_SectionValue")
@@ -149,11 +152,15 @@ class ReportService:
         quality_service: _QualityRunner | None = None,
         msa_engine: MultipleSequenceAlignmentEngine | None = None,
         interaction_service: _InteractionRunner | None = None,
+        pocket_service: StructurePocketService | None = None,
+        pocket_comparison_service: PocketComparisonService | None = None,
     ) -> None:
         self._analysis = analysis_service or AnalysisService()
         self._quality = quality_service or StructureQualityService()
         self._msa = msa_engine or MuscleAlignmentEngine()
         self._interactions = interaction_service or InteractionAnalysisService()
+        self._pockets = pocket_service or StructurePocketService()
+        self._pocket_comparison = pocket_comparison_service or PocketComparisonService()
 
     def analyze(self, request: AnalysisReportRequest) -> AnalysisReport:
         if not isinstance(request, AnalysisReportRequest):
@@ -285,6 +292,15 @@ class ReportService:
             "distance_map", diagnostics, lambda: _distance_map(reference_chain, target_chain, result.correspondences)
         )
         vectors, vector_state = self._vector_section(request, diagnostics, reference_chain, target_chain, result)
+        pockets, pocket_state = self._pocket_section(
+            request,
+            reference,
+            target,
+            result,
+            interaction_evidence,
+            diagnostics,
+            provenance,
+        )
         cards, card_state = self._run_section(
             "evidence_cards",
             diagnostics,
@@ -321,10 +337,91 @@ class ReportService:
                 distance_map=map_state,
                 displacement_vectors=vector_state,
                 evidence_cards=card_state,
+                pockets=pocket_state,
             ),
             diagnostics=_merge_diagnostics(tuple(diagnostics)),
             provenance=provenance,
+            pockets=pockets,
         )
+
+    def _pocket_section(
+        self,
+        request: AnalysisReportRequest,
+        reference: ParsedStructure,
+        target: ParsedStructure,
+        result: AnalysisResult,
+        interactions: InteractionEvidence | None,
+        diagnostics: list[Diagnostic],
+        provenance: MethodProvenance,
+    ) -> tuple[PocketReportSnapshot, Availability]:
+        """Run pocket detection and comparison as one contained report section."""
+
+        try:
+            reference_detection = self._pockets.analyze(reference)
+            target_detection = self._pockets.analyze(target)
+            reference_volumes = tuple(
+                self._pockets.measure_volume(reference, candidate) for candidate in reference_detection.candidates
+            )
+            target_volumes = tuple(
+                self._pockets.measure_volume(target, candidate) for candidate in target_detection.candidates
+            )
+            reference_volume_map = {item.candidate_id: item for item in reference_volumes if item.candidate_id}
+            target_volume_map = {item.candidate_id: item for item in target_volumes if item.candidate_id}
+            comparison = self._pocket_comparison.compare(
+                reference_detection.candidates,
+                target_detection.candidates,
+                result.correspondences,
+                transform=result.transform,
+                reference_volumes=reference_volume_map or None,
+                target_volumes=target_volume_map or None,
+                mutations=result.mutations,
+                interaction_differences=(() if interactions is None else interactions.differences),
+            )
+            reference_snapshot = _pocket_detection_snapshot("reference", reference_detection, self._pockets)
+            target_snapshot = _pocket_detection_snapshot("target", target_detection, self._pockets)
+            volume_snapshots = tuple(
+                PocketVolumeSnapshot("reference", item) for item in reference_volumes
+            ) + tuple(PocketVolumeSnapshot("target", item) for item in target_volumes)
+            section_diagnostics = (
+                tuple(reference_detection.diagnostics)
+                + tuple(target_detection.diagnostics)
+                + tuple(diagnostic for item in reference_volumes for diagnostic in item.diagnostics)
+                + tuple(diagnostic for item in target_volumes for diagnostic in item.diagnostics)
+                + tuple(comparison.diagnostics)
+            )
+            # Keep the report-level diagnostic stream complete without relying
+            # on a GUI-side reconstruction of pocket failures.
+            diagnostics.extend(item for item in section_diagnostics if item not in diagnostics)
+            states = (
+                reference_detection.availability,
+                target_detection.availability,
+                *(item.availability for item in reference_volumes),
+                *(item.availability for item in target_volumes),
+                comparison.availability,
+            )
+            availability = _aggregate_availability(states)
+            snapshot = PocketReportSnapshot(
+                detections=(reference_snapshot, target_snapshot),
+                volumes=volume_snapshots,
+                matching=comparison.matching,
+                comparisons=comparison.comparisons,
+                concordance=comparison.concordance,
+                diagnostics=section_diagnostics,
+                provenance=provenance,
+                units={"length": "angstrom", "volume": "angstrom^3"},
+                availability=availability,
+            )
+            return snapshot, availability
+        except Exception as error:
+            diagnostic = _section_failure("pockets", error)
+            diagnostics.append(diagnostic)
+            snapshot = PocketReportSnapshot(
+                diagnostics=(diagnostic,),
+                provenance=provenance,
+                units={"length": "angstrom", "volume": "angstrom^3"},
+                availability=Availability.NUMERICAL_FAILURE,
+            )
+            return snapshot, Availability.NUMERICAL_FAILURE
 
     def _interaction_evidence(
         self,
@@ -413,6 +510,38 @@ class ReportService:
         except Exception as error:
             diagnostics.append(_section_failure(name, error))
             return None, Availability.NUMERICAL_FAILURE
+
+
+def _pocket_detection_snapshot(
+    role: str,
+    report: PocketDetectionReport,
+    service: StructurePocketService,
+) -> PocketDetectionSnapshot:
+    """Adapt the application detector result to the report's typed contract."""
+
+    return PocketDetectionSnapshot(
+        role=role,
+        availability=report.availability,
+        candidates=report.candidates,
+        settings=service.settings,
+        diagnostics=report.diagnostics,
+        counts=report.counts,
+        provenance=report.provenance,
+    )
+
+
+def _aggregate_availability(statuses: tuple[Availability, ...]) -> Availability:
+    """Preserve fatal pocket evidence states while retaining no-result states."""
+
+    values = tuple(statuses)
+    for fatal in (Availability.INVALID_INPUT, Availability.DEPENDENCY_UNAVAILABLE, Availability.NUMERICAL_FAILURE):
+        if fatal in values:
+            return fatal
+    if Availability.NOT_DETECTED in values:
+        return Availability.NOT_DETECTED
+    if Availability.NOT_APPLICABLE in values:
+        return Availability.NOT_APPLICABLE
+    return Availability.AVAILABLE
 
 
 __all__ = ["ReportService"]
