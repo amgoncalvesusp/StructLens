@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
 
-def apply_transform(command: object, object_name: str, rotation: np.ndarray, translation: Sequence[float]) -> None:
+def apply_transform(
+    command: object,
+    object_name: str,
+    rotation: np.ndarray[Any, Any],
+    translation: Sequence[float],
+) -> None:
     matrix = np.asarray(rotation, dtype=float)
     offset = tuple(float(value) for value in translation)
     if matrix.shape != (3, 3) or len(offset) != 3:

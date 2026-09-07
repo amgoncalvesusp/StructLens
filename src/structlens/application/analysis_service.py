@@ -416,7 +416,7 @@ def _calculate_geometry(
 ]:
     reference_records = _record_map(reference)
     target_records = _record_map(target)
-    pairs: list[tuple[int, np.ndarray, np.ndarray]] = []
+    pairs: list[tuple[int, np.ndarray[Any, Any], np.ndarray[Any, Any]]] = []
     for item in correspondences:
         if item.reference is None or item.target is None:
             continue

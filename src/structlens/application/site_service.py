@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -10,7 +11,7 @@ from structlens.core.models import AtomRecord, ResidueId, ResidueRecord
 from structlens.core.sites import SiteDefinition, SiteDefinitionMode, SiteMetrics
 
 
-def _coords(residue: ResidueRecord, names: set[str] | None = None) -> np.ndarray:
+def _coords(residue: ResidueRecord, names: set[str] | None = None) -> np.ndarray[Any, Any]:
     atoms = [atom.coordinate for atom in residue.atoms if names is None or atom.name.upper() in names]
     return np.asarray(atoms, dtype=np.float64)
 
@@ -47,17 +48,17 @@ def define_site(
     return tuple(selected)
 
 
-def _centroid(values: np.ndarray) -> np.ndarray | None:
+def _centroid(values: np.ndarray[Any, Any]) -> np.ndarray[Any, Any] | None:
     return np.mean(values, axis=0) if len(values) else None
 
 
-def _rmsd(reference: np.ndarray, target: np.ndarray) -> float | None:
+def _rmsd(reference: np.ndarray[Any, Any], target: np.ndarray[Any, Any]) -> float | None:
     if not len(reference) or reference.shape != target.shape:
         return None
     return float(np.sqrt(np.mean(np.sum((target - reference) ** 2, axis=1))))
 
 
-def _envelope_volume(values: np.ndarray) -> float | None:
+def _envelope_volume(values: np.ndarray[Any, Any]) -> float | None:
     """Convex-hull envelope volume, or None when no 3D envelope exists.
 
     Fewer than four atoms, and atoms that are collinear or coplanar, enclose no
@@ -84,7 +85,7 @@ def calculate_site_metrics(
     correspondence: Mapping[ResidueId, ResidueId],
     *,
     target_structure_id: str,
-    target_transform: np.ndarray | None = None,
+    target_transform: np.ndarray[Any, Any] | None = None,
     sasa_angstrom2: float | None = None,
     ligand_atoms: Mapping[str, Sequence[AtomRecord]] | None = None,
 ) -> SiteMetrics:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -22,8 +23,8 @@ class RefinementResult:
 
 
 def refine_superposition(
-    reference_coordinates: np.ndarray,
-    target_coordinates: np.ndarray,
+    reference_coordinates: np.ndarray[Any, Any],
+    target_coordinates: np.ndarray[Any, Any],
     *,
     alignment_indices: Sequence[int] | None = None,
     cutoff_angstrom: float = 2.0,

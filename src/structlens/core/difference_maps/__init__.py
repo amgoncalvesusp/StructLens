@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -11,7 +12,7 @@ from numpy.typing import ArrayLike
 from structlens.core.models import ResidueId
 
 
-def _matrix(value: ArrayLike, name: str, size: int | None = None) -> np.ndarray:
+def _matrix(value: ArrayLike, name: str, size: int | None = None) -> np.ndarray[Any, Any]:
     matrix = np.asarray(value, dtype=np.float64)
     if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
         raise ValueError(f"{name} must be square")
@@ -55,7 +56,7 @@ class DistanceDifferenceMatrix:
         object.__setattr__(self, "valid_mask", mask)
 
     @property
-    def matrix_angstrom(self) -> np.ndarray:
+    def matrix_angstrom(self) -> np.ndarray[Any, Any]:
         return np.asarray(self.delta_angstrom, dtype=np.float64)
 
 

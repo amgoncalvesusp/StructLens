@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -10,7 +11,7 @@ from structlens.core.geometry.rmsd import rmsd
 
 
 def neighborhood_indices(
-    reference_ca_coordinates: np.ndarray,
+    reference_ca_coordinates: np.ndarray[Any, Any],
     center_index: int,
     radius_angstrom: float = 5.0,
 ) -> tuple[int, ...]:
@@ -26,8 +27,8 @@ def neighborhood_indices(
 
 
 def local_rmsd(
-    reference_ca_coordinates: np.ndarray,
-    target_ca_coordinates: np.ndarray,
+    reference_ca_coordinates: np.ndarray[Any, Any],
+    target_ca_coordinates: np.ndarray[Any, Any],
     indices: Sequence[int],
 ) -> float | None:
     reference = np.asarray(reference_ca_coordinates, dtype=float)

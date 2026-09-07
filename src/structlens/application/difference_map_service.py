@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -10,7 +11,7 @@ from structlens.core.difference_maps import DistanceDifferenceMatrix, ResidueDis
 from structlens.core.models import ResidueId
 
 
-def _distance_matrix(coordinates: np.ndarray) -> np.ndarray:
+def _distance_matrix(coordinates: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
     delta = coordinates[:, None, :] - coordinates[None, :, :]
     result = np.sqrt(np.einsum("ijk,ijk->ij", delta, delta, dtype=np.float64))
     return np.asarray(result, dtype=np.float64)
