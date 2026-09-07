@@ -14,7 +14,8 @@ class FreeSASAAdapter:
         self._freesasa = freesasa
 
     def calculate_file(self, path: str | Path) -> float:
-        result = self._freesasa.calc(str(path))
+        structure = self._freesasa.Structure(str(path))
+        result = self._freesasa.calc(structure)
         return float(result.totalArea())
 
     def calculate_pdb(self, pdb_text: str) -> float:

@@ -102,6 +102,16 @@ def test_calculate_sasa_returns_none_instead_of_zero_for_a_missing_file(tmp_path
     assert calculate_sasa(tmp_path / "absent.pdb") is None
 
 
+def test_calculate_sasa_reads_a_structure_file(tmp_path: Path) -> None:
+    pdb_path = tmp_path / "single_atom.pdb"
+    pdb_path.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00 20.00           C  \nEND\n",
+        encoding="ascii",
+    )
+    area = calculate_sasa(pdb_path)
+    assert area is not None and area > 0.0
+
+
 def test_page_descriptors_are_named_and_documented() -> None:
     for module_name in PAGE_MODULES:
         module = importlib.import_module(f"structlens.plugin.gui.{module_name}")
