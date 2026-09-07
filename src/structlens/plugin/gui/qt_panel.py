@@ -116,6 +116,7 @@ class PanelController:
         self.target_structure: ProteinStructure | None = None
         self.reference_object_name: str | None = None
         self.target_object_name: str | None = None
+        self._source_objects: dict[str, str] = {}
         self._temporary_paths: list[Path] = []
         self._analysis_service = AnalysisService()
         self._renderer = VisualizationRenderer()
@@ -150,8 +151,8 @@ class PanelController:
         self._build_sites_page()
         self._build_visualization_page()
         self._build_pymol_page()
-        self._build_export_page()
         self._build_results_page()
+        self._build_export_page()
         self._wire_navigation()
         self._set_status(self.model.status)
         self._update_mode_help(self.mode_combo.currentText())
@@ -996,6 +997,8 @@ class PanelController:
         *,
         pymol_object_name: str | None = None,
     ) -> bool:
+        combo = self.reference_chain_combo if role == "reference" else self.target_chain_combo
+        selected_chain = self._combo_data(combo)
         self._invalidate_analysis_views()
         self._clear_source(role)
         try:
@@ -1012,6 +1015,9 @@ class PanelController:
                 self.target_edit.setText(str(path))
                 self._populate_chains(self.target_chain_combo, structure)
                 self.target_meta.setText(_structure_meta(structure))
+            selected_index = combo.findData(selected_chain)
+            if selected_index >= 0:
+                combo.setCurrentIndex(selected_index)
             self._sync_source_model()
             self._set_status(f"{role.title()} loaded · choose chains or run comparison")
             return True
@@ -1090,9 +1096,20 @@ class PanelController:
         object_name = selection_name("panel", path.stem, role)
         try:
             get_names = getattr(self.command, "get_names", None)
-            names = {str(name) for name in get_names("objects")} if get_names is not None else set()
-            if object_name not in names:
-                load(str(path), object_name)
+            names = {str(name) for name in get_names("all")} if get_names is not None else set()
+            previous = self._source_objects.get(role)
+            delete = getattr(self.command, "delete", None)
+            if previous is not None and delete is not None:
+                object_name = previous
+                delete(previous)
+            else:
+                base_name = object_name
+                suffix = 1
+                while object_name in names:
+                    object_name = f"{base_name}_{suffix}"
+                    suffix += 1
+            load(str(path), object_name)
+            self._source_objects = {**self._source_objects, role: object_name}
             return object_name
         except Exception:
             return None

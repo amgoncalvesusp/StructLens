@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -52,6 +53,72 @@ def test_qt_panel_builds_operate_workflow(application) -> None:
     assert controller.nav.item(6).text() == "PyMOL"
     assert controller.nav.item(8).text() == "Export"
 
+    controller.close()
+    panel.deleteLater()
+
+
+def test_results_and_export_navigation_open_matching_pages(application) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    for section in ("Results", "Export"):
+        controller.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index(section))
+        assert controller.pages.currentWidget().objectName() == f"page{section}"
+    controller.close()
+    panel.deleteLater()
+
+
+def test_compare_preserves_selected_chains(application, monkeypatch) -> None:
+    panel = build_qt_panel()
+    controller = panel._structlens_controller
+    structure = ProteinStructure("protein", chains=tuple(
+        ProteinChain("protein", "1", name) for name in ("A", "B")
+    ))
+    monkeypatch.setattr(qt_panel, "load_structure", lambda path: structure)
+    executor = Mock()
+    monkeypatch.setattr(qt_panel, "_ANALYSIS_EXECUTOR", executor)
+    for role in ("reference", "target"):
+        assert controller._load_source(role, Path(f"{role}.pdb"))
+        getattr(controller, f"{role}_chain_combo").setCurrentIndex(1)
+    controller._start_analysis()
+    args = executor.submit.call_args.args
+    assert (args[1].chain_id, args[2].chain_id) == ("B", "B")
+    assert controller.model.reference_chain_id == "B"
+    controller.close()
+    panel.deleteLater()
+
+
+def test_pymol_source_reload_replaces_coordinates_without_touching_user_objects(application, tmp_path) -> None:
+    class Command:
+        def __init__(self):
+            self.objects = {"structlens_panel_protein_reference": "user object"}
+
+        def get_names(self, kind):
+            return list(self.objects)
+
+        def load(self, path, name):
+            # Loading into an existing PyMOL object appends a state.
+            self.objects[name] = self.objects.get(name, "") + Path(path).read_text()
+
+        def delete(self, name):
+            self.objects.pop(name, None)
+
+    command = Command()
+    panel = build_qt_panel(command=command)
+    controller = panel._structlens_controller
+    first = tmp_path / "first" / "protein.pdb"
+    second = tmp_path / "second" / "protein.pdb"
+    for path, content in ((first, "first"), (second, "second")):
+        path.parent.mkdir()
+        path.write_text(content)
+    initial_name = controller._load_file_into_pymol("reference", first)
+    name = controller._load_file_into_pymol("reference", second)
+    assert name == initial_name
+    assert command.objects[name] == "second"
+    second.write_text("updated")
+    name = controller._load_file_into_pymol("reference", second)
+    assert command.objects[name] == "updated"
+    assert command.objects["structlens_panel_protein_reference"] == "user object"
+    assert len(command.objects) == 2
     controller.close()
     panel.deleteLater()
 
