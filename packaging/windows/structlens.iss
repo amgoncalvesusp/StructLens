@@ -33,7 +33,7 @@ Source: "structlens.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\RELEASE_NOTES_v0.3.0.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\RELEASE_NOTES_v0.3.1.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\licenses\*"; DestDir: "{app}\licenses"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]

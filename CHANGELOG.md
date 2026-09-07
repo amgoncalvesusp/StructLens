@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Preserved selected chains when reloading sources for comparison.
+- Kept Results and Export navigation aligned with their visible pages.
+- Replaced stale PyMOL source objects safely when files share a basename.
+- Anchored multiple-structure positions to reference residues across insertions.
+- Made refined RMSD and excluded indices describe the same final fit.
+- Exported the authoritative target-to-reference transform for every geometry run.
+
 ## 0.1.5
 
 - Packages the PyQt5 GUI as an onedir application inside the Windows and Linux setups, avoiding slow one-file assembly while preserving double-click launch shortcuts.
