@@ -129,7 +129,9 @@ class AnalysisService:
             strict_rmsd_angstrom=strict.strict_rmsd_angstrom if strict else None,
             refined_rmsd_angstrom=refined.strict_rmsd_angstrom if refined else None,
             mapped_residue_count=strict.residue_count if strict else 0,
-            refined_residue_count=refined.residue_count if refined else None,
+            refined_residue_count=(
+                refined.residue_count if refined else (0 if settings.refined_rmsd and excluded else None)
+            ),
             excluded_alignment_indices=tuple(excluded),
             tm_score=tm_score,
             provenance=provenance,
@@ -231,7 +233,8 @@ class AnalysisService:
     def analyze_multiple_structure_alignment(
         self,
         reference: ProteinStructure | ProteinChain,
-        targets: Mapping[str, ProteinStructure | ProteinChain] | Sequence[ProteinStructure | ProteinChain],
+        targets: Mapping[str, ProteinStructure | ProteinChain]
+        | Sequence[ProteinStructure | ProteinChain],
         settings: AnalysisSettings | None = None,
         *,
         reference_chain_id: str | None = None,
@@ -254,22 +257,41 @@ class AnalysisService:
             target_chain_ids=target_chain_ids,
             cancel_event=cancel_event,
         )
-        by_index: dict[int, dict[str, ResidueId | None]] = {}
-        reference_by_index: dict[int, ResidueId | None] = {}
-        deviations: dict[int, dict[str, float | None]] = {}
+        # Pairwise alignment columns are local to each target. Only a reference
+        # residue establishes equivalence; target insertions remain independent.
+        reference_indices = {residue: index for index, residue in enumerate(reference_chain.residues)}
+        by_index: dict[tuple[int, int, str, int], dict[str, ResidueCorrespondence]] = {
+            (index, 1, "", 0): {} for index in range(len(reference_chain.residues))
+        }
         for target_id, target in many.targets.items():
-            for item in target.correspondence:
-                reference_by_index.setdefault(item.alignment_index, item.reference)
-                by_index.setdefault(item.alignment_index, {})[target_id] = item.target
-                deviations.setdefault(item.alignment_index, {})[target_id] = item.ca_displacement_angstrom
+            next_reference_index = len(reference_chain.residues)
+            for item in reversed(target.correspondence):
+                if item.reference is not None:
+                    next_reference_index = reference_indices[item.reference]
+                    key = (next_reference_index, 1, "", 0)
+                else:
+                    key = (next_reference_index, 0, target_id, item.alignment_index)
+                by_index[key] = {**by_index.get(key, {}), target_id: item}
         positions: list[MultiStructurePosition] = []
-        for index in sorted(by_index):
-            residues = by_index[index]
+        for index, key in enumerate(sorted(by_index)):
+            items = by_index[key]
+            residues = {
+                target_id: items[target_id].target if target_id in items else None
+                for target_id in many.target_ids
+            }
+            deviations = {
+                target_id: items[target_id].ca_displacement_angstrom if target_id in items else None
+                for target_id in many.target_ids
+            }
             mapped = sum(residue is not None for residue in residues.values())
             total = len(many.target_ids) + 1
-            variation_values = [value for value in deviations[index].values() if value is not None]
-            variability = float(np.std(np.asarray([0.0, *variation_values], dtype=float))) if variation_values else None
-            reference_residue = reference_by_index.get(index)
+            variation_values = [value for value in deviations.values() if value is not None]
+            reference_residue = reference_chain.residues[key[0]] if key[1] == 1 else None
+            variability = (
+                float(np.std(np.asarray([0.0, *variation_values], dtype=float)))
+                if reference_residue is not None and variation_values
+                else None
+            )
             positions.append(
                 MultiStructurePosition(
                     alignment_index=index,
@@ -278,8 +300,8 @@ class AnalysisService:
                     coverage=(mapped + int(reference_residue is not None)) / total,
                     ca_positional_variability_angstrom=variability,
                     per_structure_deviation_angstrom={
-                        reference_chain.structure_id: 0.0,
-                        **deviations[index],
+                        reference_chain.structure_id: 0.0 if reference_residue is not None else None,
+                        **deviations,
                     },
                 )
             )
@@ -375,11 +397,17 @@ def _calculate_geometry(
             None,
         )
         target_ca = next(
-            (atom.coordinate for atom in target_record.atoms if atom.name.upper() == "CA"),
+            (
+                atom.coordinate
+                for atom in target_record.atoms
+                if atom.name.upper() == "CA"
+            ),
             None,
         )
         if ref_ca is not None and target_ca is not None:
-            pairs.append((item.alignment_index, np.asarray(ref_ca), np.asarray(target_ca)))
+            pairs.append(
+                (item.alignment_index, np.asarray(ref_ca), np.asarray(target_ca))
+            )
     if not pairs:
         return correspondences, None, None, []
     ref_coords = np.array([pair[1] for pair in pairs], dtype=float)
@@ -396,7 +424,9 @@ def _calculate_geometry(
             {
                 atom.name: tuple(
                     float(value)
-                    for value in apply_transform(np.asarray([atom.coordinate]), strict.rotation, strict.translation)[0]
+                    for value in apply_transform(
+                        np.asarray([atom.coordinate]), strict.rotation, strict.translation
+                    )[0]
                 )
                 for atom in transformed_target_record.atoms
             }
@@ -416,28 +446,45 @@ def _calculate_geometry(
         updated[alignment_index] = replace(
             item,
             ca_displacement_angstrom=ca_displacement(ref_coord, fitted[pair_index]),
-            backbone_rmsd_angstrom=(residue_metrics.backbone_rmsd_angstrom if residue_metrics else None),
-            sidechain_rmsd_angstrom=(residue_metrics.sidechain_rmsd_angstrom if residue_metrics else None),
-            all_heavy_atom_rmsd_angstrom=(residue_metrics.all_heavy_atom_rmsd_angstrom if residue_metrics else None),
+            backbone_rmsd_angstrom=(
+                residue_metrics.backbone_rmsd_angstrom if residue_metrics else None
+            ),
+            sidechain_rmsd_angstrom=(
+                residue_metrics.sidechain_rmsd_angstrom if residue_metrics else None
+            ),
+            all_heavy_atom_rmsd_angstrom=(
+                residue_metrics.all_heavy_atom_rmsd_angstrom if residue_metrics else None
+            ),
         )
     excluded: list[int] = []
-    refined = strict
+    refined: SuperpositionResult | None = strict
     if settings.refined_rmsd and len(pairs) >= 3:
         keep = np.ones(len(pairs), dtype=bool)
         for _ in range(settings.refinement_max_iterations):
-            candidate = superpose(ref_coords[keep], target_coords[keep], residue_count=int(keep.sum()))
-            candidate_fitted = apply_transform(target_coords, candidate.rotation, candidate.translation)
+            candidate = superpose(
+                ref_coords[keep], target_coords[keep], residue_count=int(keep.sum())
+            )
+            candidate_fitted = apply_transform(
+                target_coords, candidate.rotation, candidate.translation
+            )
             distances = np.linalg.norm(ref_coords - candidate_fitted, axis=1)
             new_keep = distances <= settings.refinement_cutoff_angstrom
             if new_keep.sum() < 1 or np.array_equal(new_keep, keep):
-                refined = candidate
                 keep = new_keep
                 break
             keep = new_keep
-            refined = candidate
+        # The last iteration may change membership. Fit the exact final set
+        # reported below, and do not fabricate a metric for an empty set.
+        refined = (
+            superpose(ref_coords[keep], target_coords[keep], residue_count=int(keep.sum()))
+            if keep.any()
+            else None
+        )
         excluded = [pairs[index][0] for index, kept in enumerate(keep) if not kept]
         for alignment_index in excluded:
-            updated[alignment_index] = replace(updated[alignment_index], is_outlier=True)
+            updated[alignment_index] = replace(
+                updated[alignment_index], is_outlier=True
+            )
     return updated, strict, refined if settings.refined_rmsd else None, excluded
 
 

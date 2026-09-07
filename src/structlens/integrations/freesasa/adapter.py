@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 class FreeSASAAdapter:
@@ -14,12 +15,17 @@ class FreeSASAAdapter:
         self._freesasa = freesasa
 
     def calculate_file(self, path: str | Path) -> float:
-        result = self._freesasa.calc(str(path))
+        structure = self._freesasa.Structure(str(path))
+        result = self._freesasa.calc(structure)
         return float(result.totalArea())
 
     def calculate_pdb(self, pdb_text: str) -> float:
-        structure = self._freesasa.Structure(pdb_text)
-        return float(self._freesasa.calc(structure).totalArea())
+        # FreeSASA accepts a filename, not PDB text. Close the file before the
+        # native library opens it, including on Windows.
+        with TemporaryDirectory(prefix="structlens-sasa-") as directory:
+            path = Path(directory) / "structure.pdb"
+            path.write_text(pdb_text, encoding="utf-8")
+            return self.calculate_file(path)
 
 
 def calculate_sasa(path: str | Path) -> float | None:
