@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import is_dataclass
 
 import pytest
-from structlens.plugin.gui.quality_page import QualityFilter, QualityPresenter
 
 from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
 from structlens.core.quality import CoordinateQCSettings, StructureQualityReport
+from structlens.plugin.gui.quality_page import QualityFilter, QualityPresenter
 
 
 def _report() -> StructureQualityReport:

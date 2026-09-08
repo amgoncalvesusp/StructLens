@@ -25,15 +25,28 @@ GUI_SECTIONS = (
 
 SCIENTIFIC_SECTIONS = (
     "Project",
-    "Sequences",
     "Structures",
+    "Results",
+    "Sequences",
     "Residues",
     "Sites",
     "Charts",
     "PyMOL",
-    "Results",
     "Export",
 )
+
+# Keep internal page identifiers stable for projects and host integrations.
+PAGE_LABELS = {
+    "Project": "1. Project",
+    "Structures": "2. Comparison settings",
+    "Results": "3. Results summary",
+    "Sequences": "Sequences",
+    "Residues": "Residues",
+    "Sites": "Sites & pockets",
+    "Charts": "Charts",
+    "PyMOL": "Open in PyMOL",
+    "Export": "Export",
+}
 
 WORKFLOW_HELP = {
     "Auto": "What it does: evaluates sequence identity and coverage, then chooses sequence or structure mapping. Use it for most comparisons; the decision is reported.",

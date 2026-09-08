@@ -29,6 +29,8 @@ def page_subtitle(section: str, *, standalone: bool = False) -> str:
 def label(widgets: Any, text: str, object_name: str) -> Any:
     widget = widgets.QLabel(text)
     widget.setObjectName(object_name)
+    if object_name in {"fieldMeta", "helpText", "inlineNote", "pagePurpose", "resultDecision", "legend"}:
+        widget.setWordWrap(True)
     return widget
 
 
@@ -100,6 +102,7 @@ def stylesheet() -> str:
 
     return """
     QWidget#structlensPanel { background: #111827; color: #dbe7f3; }
+    QScrollArea, QWidget[pageCanvas="true"] { background: #111827; color: #dbe7f3; }
     QFrame#header { background: #0c1421; border-bottom: 1px solid #26364b; }
     QFrame#sidebar { background: #0d1726; border-right: 1px solid #26364b; }
     QFrame#footer { background: #0c1421; border-top: 1px solid #26364b; }
@@ -108,6 +111,7 @@ def stylesheet() -> str:
     QLabel#windowTitle { color: #f5f8fc; font-size: 20px; font-weight: 700; }
     QLabel#pageTitle { color: #f5f8fc; font-size: 24px; font-weight: 700; }
     QLabel#pagePurpose { color: #9eb0c5; font-size: 13px; }
+    QLabel#workflowContext { color: #b8c9dc; font-size: 12px; }
     QLabel#statusPill { background: #19304a; color: #9fc7ff; border: 1px solid #2a5a8a; border-radius: 12px; padding: 5px 11px; font-weight: 700; }
     QLabel#footerStatus { color: #b8c9dc; }
     QLabel#footerMeta, QLabel#fieldMeta, QLabel#sidebarNote { color: #71869e; }
@@ -117,7 +121,7 @@ def stylesheet() -> str:
     QLabel#resultDecision { background: #14253a; color: #d9e8f8; border: 1px solid #2a537d; padding: 13px; }
     QLabel#metricValue { color: #f5f8fc; font-size: 17px; font-weight: 700; }
     QListWidget#workflowNav { background: transparent; border: none; outline: none; color: #aabbd0; }
-    QListWidget#workflowNav::item { padding: 11px 12px; border-radius: 6px; }
+    QListWidget#workflowNav::item { padding: 6px 8px; border-radius: 6px; }
     QListWidget#workflowNav::item:hover { background: #16283e; color: #eaf3ff; }
     QListWidget#workflowNav::item:selected { background: #1e4d78; color: #ffffff; font-weight: 700; }
     QGroupBox { background: #141f30; border: 1px solid #293c55; border-radius: 5px; margin-top: 8px; padding-top: 15px; font-weight: 700; color: #e0ebf7; }
@@ -139,6 +143,8 @@ def stylesheet() -> str:
     QProgressBar::chunk { background: #2f7af8; }
     QScrollBar:vertical { background: #0e1828; width: 11px; }
     QScrollBar::handle:vertical { background: #35516e; min-height: 28px; }
+    QScrollBar:horizontal { background: #0e1828; height: 11px; }
+    QScrollBar::handle:horizontal { background: #35516e; min-width: 28px; }
     """
 
 

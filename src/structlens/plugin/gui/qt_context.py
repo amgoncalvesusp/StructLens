@@ -119,6 +119,8 @@ class QtMixinContext:
     _visualization_service: VisualizationService
     _pymol: PyMOLAdapter
     _future: Any
+    _completed_configuration: tuple[Any, ...] | None
+    _pending_configuration: tuple[Any, ...] | None
     _poll_timer: Any
     _cancel_event: Event
     chart_export_buttons: list[Any]

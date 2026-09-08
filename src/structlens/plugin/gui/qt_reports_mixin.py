@@ -34,11 +34,9 @@ class ReportMixin(QtMixinContext):
         self.mutation_table.setRowCount(0)
         self.residue_table.setRowCount(0)
         self.structure_result_table.setRowCount(0)
-        self.structure_result_summary.setText(
-            "No structure comparison result yet. Run comparison to populate this tab."
-        )
+        self.structure_result_summary.setText("Run Compare structures to see results in Results summary.")
         self._render_site_metrics(())
-        self.chart_preview_status.setText("Chart unavailable. Run the corresponding scientific service first.")
+        self.chart_preview_status.setText("Run Compare structures to populate the available charts.")
         self._clear_chart_layout(self.chart_preview_layout)
         self._clear_chart_layout(self.sequence_chart_layout)
         self._update_chart_export_state(self.chart_combo.currentText())
@@ -48,20 +46,21 @@ class ReportMixin(QtMixinContext):
         if hasattr(self, "pocket_table"):
             self.pocket_table.setRowCount(0)
             self.pocket_status_label.setText("Pocket evidence appears after Compare.")
-            self.pocket_capability_label.setText("No canonical pocket report loaded.")
+            self.pocket_capability_label.setText("No pocket results yet. Run Compare structures.")
             self.pocket_detail_label.setText("Select a pocket candidate to inspect volume evidence.")
             self.pocket_detect_button.setEnabled(False)
             self.pocket_measure_button.setEnabled(False)
             self._pocket_presentation = None
+        self._refresh_workflow_state()
 
     def _populate_result(self, result: AnalysisResult) -> None:
         self.result_decision.setText(
             f"<b>{result.alignment_decision}</b><br>Reference: {result.reference_id} · Target: {result.target_id}"
         )
         values = {
-            "sequence_identity": f"{result.sequence_identity:.3f}",
-            "sequence_similarity": _number(result.sequence_similarity),
-            "sequence_coverage": f"{result.sequence_coverage:.3f}",
+            "sequence_identity": f"{result.sequence_identity:.1%}",
+            "sequence_similarity": "—" if result.sequence_similarity is None else f"{result.sequence_similarity:.1%}",
+            "sequence_coverage": f"{result.sequence_coverage:.1%}",
             "strict_rmsd_angstrom": _number(result.strict_rmsd_angstrom),
             "refined_rmsd_angstrom": _number(result.refined_rmsd_angstrom),
             "tm_score": _number(result.tm_score),
@@ -121,9 +120,12 @@ class ReportMixin(QtMixinContext):
             self._report_controller.accept_binding(binding)
             self._report_request = binding.request
         self._pending_report_request = None
+        self._completed_configuration = self._pending_configuration or self._configuration_key()
+        self._pending_configuration = None
         self._set_busy(False)
-        self._set_status(f"Analysis report complete · {report.report_id}")
-        self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
+        self._set_status("Analysis report complete. Results summary is ready.")
+        self.footer_status.setToolTip(f"Report {report.report_id}")
+        self.nav.setCurrentRow(_RESULTS_PAGE_INDEX)
 
     def _fill_report_structure_result(self, report: AnalysisReport) -> None:
         analysis = report.analysis

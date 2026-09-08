@@ -536,3 +536,21 @@
   `Pillow>=12.3.0`, and an unrelated `open-webui`/`onnxruntime` conflict. Clean
   frozen-environment repair remains assigned to packaging Tasks 17/18. The next
   accepted item is Task 13, GUI architecture and the completed v0.3 flow.
+- 2026-09-08 standalone GUI usability: ordered navigation as Project, Configure,
+  Results, then detailed analyses and exports; retained one comparison action
+  with explicit readiness, running, and pending-configuration states. Advanced
+  controls and detailed reports are collapsible. Results and exports identify
+  the last completed report while configuration edits await another comparison.
+  Window sizing uses available screen geometry; pages have native scrollbars,
+  wrapped labels, and compact action grids for small displays. Scientific
+  calculations and full-precision exports are unchanged. Manual project reloads
+  restore residue pairs, and export failures cannot unlock a running comparison.
+  The existing canonical-report external PyMOL limitation is visible before
+  clicking; unsupported actions are disabled without changing legacy support.
+  Native Windows Qt checks covered every page at 800x600 and 125% display scale,
+  plus real comparison and JSON/XLSX/CSV exports after pending edits. Automated
+  tests cover navigation, scrolling, state transitions, and project restoration.
+  Final suite: 1,111 passed, one existing Windows symlink-privilege skip, 90.88%
+  coverage. Changed-file Ruff, mypy (195 source files), and diff checks passed.
+  Run `python scripts/run_gui.py` from this checkout to try the local GUI without
+  installing over another version.

@@ -90,6 +90,10 @@ class ExportMixin(QtMixinContext):
             self._set_combo_value(self.target_chain_combo, target_chain)
             self._sync_source_model()
             self._apply_project_settings(project.settings)
+            self.manual_edit.setPlainText("\n".join(
+                " -> ".join(f"{residue.chain_id}:{residue.auth_seq_id}{residue.insertion_code or ''}" for residue in pair)
+                for pair in binding.request.manual_pairs
+            ))
             self._set_combo_value(self.comparison_combo, project.comparison_mode.value)
             self._apply_visualization_state(candidate.visualization_state)
             self._site_definitions = binding.request.site_definitions
@@ -115,10 +119,13 @@ class ExportMixin(QtMixinContext):
             "reference_chain": self._combo_data(self.reference_chain_combo),
             "target_chain": self._combo_data(self.target_chain_combo),
             "settings": self._settings(),
+            "manual_text": self.manual_edit.toPlainText(),
             "comparison": str(self.comparison_combo.currentData() or ComparisonMode.PAIRWISE.value),
             "visualization": self._state_from_controls(),
             "report_request": self._report_request,
             "pending_request": self._pending_report_request,
+            "completed_configuration": self._completed_configuration,
+            "pending_configuration": self._pending_configuration,
             "report_presentation": self._report_presentation,
             "report_history": self._report_history,
             "presentation_history": self._presentation_history,
@@ -147,6 +154,7 @@ class ExportMixin(QtMixinContext):
         self._set_combo_value(self.reference_chain_combo, str(previous["reference_chain"] or ""))
         self._set_combo_value(self.target_chain_combo, str(previous["target_chain"] or ""))
         self._apply_project_settings(previous["settings"])
+        self.manual_edit.setPlainText(str(previous["manual_text"]))
         self._set_combo_value(self.comparison_combo, str(previous["comparison"]))
         self._apply_visualization_state(previous["visualization"])
 
@@ -164,6 +172,8 @@ class ExportMixin(QtMixinContext):
         self.model = model
         self._report_request = previous["report_request"]
         self._pending_report_request = previous["pending_request"]
+        self._completed_configuration = previous["completed_configuration"]
+        self._pending_configuration = previous["pending_configuration"]
         self._report_presentation = presentation
         self._report_history = previous["report_history"]
         self._presentation_history = previous["presentation_history"]
@@ -180,6 +190,7 @@ class ExportMixin(QtMixinContext):
         self.footer_status.setText(str(previous["footer_status"]))
         self.header_status.setText(str(previous["header_status"]))
         self.nav.setCurrentRow(int(previous["navigation"]))
+        self._refresh_workflow_state()
 
     def _restore_loaded_source(self, role: str, loaded: LoadedSource | None) -> None:
         if loaded is None:
@@ -233,7 +244,8 @@ class ExportMixin(QtMixinContext):
         if project.analysis_results:
             self.model = self.model.with_analysis(project.analysis_results[-1])
             self._populate_result(project.analysis_results[-1])
-            self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
+            self._completed_configuration = self._configuration_key()
+            self.nav.setCurrentRow(_RESULTS_PAGE_INDEX)
         else:
             self._fill_results_history()
         self._report_request = None
@@ -363,7 +375,7 @@ class ExportMixin(QtMixinContext):
                 else:
                     self._show_error(f"Could not export canonical PyMOL bundle: {exc}")
                 return
-            self._show_error("Canonical snapshot-native PyMOL bundle export is unavailable until Task 15.")
+            self._show_error("PyMOL export is unavailable for this report format in this version. Use table or image exports.")
             return
         result = self.model.analysis
         if result is None:
@@ -402,7 +414,7 @@ class ExportMixin(QtMixinContext):
             except (TypeError, ValueError) as exc:
                 self._show_error(f"Could not open canonical PyMOL bundle: {exc}")
                 return
-            self._show_error("Canonical snapshot-native external PyMOL launch is unavailable until Task 15.")
+            self._show_error("Opening this report format in PyMOL is unavailable in this version. Use table or image exports.")
             return
         result = self.model.analysis
         if result is None:
@@ -542,8 +554,8 @@ class ExportMixin(QtMixinContext):
     # --------------------------------------------------------------- feedback
 
     def _set_status(self, message: str) -> None:
-        self.header_status.setText("Busy" if self.model.busy else "Ready")
         self.footer_status.setText(message)
+        self._refresh_workflow_state()
 
     def _show_error(self, message: str) -> None:
         self.model = self.model.with_error(message)
@@ -628,7 +640,8 @@ class ExportMixin(QtMixinContext):
             item for item in self._site_definitions if item.site_id != definition.site_id
         ) + (definition,)
         self.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sites"))
-        self.site_status_label.setText("Site definition stored for the next Compare; metrics are report-generated.")
+        self.site_status_label.setText("Site added. Run Compare structures to update the results.")
+        self._refresh_workflow_state()
 
     def _site_unavailable(self, message: str) -> None:
         """Keep site absence explicit instead of presenting fabricated zeros."""
@@ -699,6 +712,9 @@ class ExportMixin(QtMixinContext):
                 return
 
     def _refresh_pymol_status(self) -> None:
+        if self.model.report is not None:
+            self.pymol_status.setText("PyMOL export is unavailable for this report format in this version.")
+            return
         try:
             executable = PyMOLLauncher(self.pymol_edit.text().strip() or None).locate()
         except Exception:

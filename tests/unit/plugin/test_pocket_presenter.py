@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from structlens.plugin.gui.pockets_page import PocketPresenter
-
 from structlens.core.evidence import Availability, Diagnostic, DiagnosticSeverity
 from structlens.core.models import ResidueId
 from structlens.core.pockets import AlphaSphere, PocketCandidate
 from structlens.core.pockets.matching import PocketMatch, PocketMatchingResult, PocketMatchState
 from structlens.core.pockets.volume_models import PocketVolumeResult, PocketVolumeSensitivity
 from structlens.core.reports.pockets import PocketDetectionSnapshot, PocketReportSnapshot, PocketVolumeSnapshot
+from structlens.plugin.gui.pockets_page import PocketPresenter
 
 
 def _candidate(structure_id: str, offset: float = 0.0) -> PocketCandidate:

@@ -234,7 +234,7 @@ def test_canonical_open_and_chart_exports_fail_before_external_side_effects(
     )
     controller._open_in_pymol()
     assert writers == []
-    assert "task 15" in errors[-1].lower()
+    assert "opening this report format in pymol is unavailable" in errors[-1].lower()
 
     controller.model = StructLensPanelModel()
     controller._export_chart_xlsx()

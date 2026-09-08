@@ -26,14 +26,14 @@ class Task14PageMixin(QtMixinContext):
         layout.addWidget(
             _label(
                 self.w,
-                "Pocket candidates, matching states, and coarse/fine free-volume estimates are read from the canonical Compare report.",
+                "Pocket candidates, matches, and free-volume estimates appear when available in the comparison. Availability and any limitations are shown below.",
                 "helpText",
             )
         )
-        self.pocket_status_label = _label(self.w, "Pocket evidence appears after Compare.", "inlineNote")
+        self.pocket_status_label = _label(self.w, "Compare structures to check pocket availability.", "inlineNote")
         self.pocket_status_label.setWordWrap(True)
         layout.addWidget(self.pocket_status_label)
-        self.pocket_capability_label = _label(self.w, "No canonical pocket report loaded.", "inlineNote")
+        self.pocket_capability_label = _label(self.w, "No comparison result loaded.", "inlineNote")
         self.pocket_capability_label.setWordWrap(True)
         layout.addWidget(self.pocket_capability_label)
         self.pocket_table = self.w.QTableWidget(0, 7, group)
@@ -54,23 +54,22 @@ class Task14PageMixin(QtMixinContext):
         self.pocket_detail_label = _label(self.w, "Select a pocket candidate to inspect volume evidence.", "inlineNote")
         self.pocket_detail_label.setWordWrap(True)
         layout.addWidget(self.pocket_detail_label)
-        actions = self.w.QHBoxLayout()
         self.pocket_detect_button = _button(self.w, "Detect pockets (rerun Compare)", "secondaryButton")
+        self.pocket_detect_button.setParent(group)
+        self.pocket_detect_button.hide()
         self.pocket_detect_button.setToolTip(
             "Pocket detection is computed by Compare and is read-only in this report view."
         )
         self.pocket_detect_button.setEnabled(False)
         self.pocket_detect_button.clicked.connect(self._request_pocket_detection)
-        actions.addWidget(self.pocket_detect_button)
         self.pocket_measure_button = _button(self.w, "Measure volume (rerun Compare)", "secondaryButton")
+        self.pocket_measure_button.setParent(group)
+        self.pocket_measure_button.hide()
         self.pocket_measure_button.setToolTip(
             "Volume measurement is computed by Compare and is read-only in this report view."
         )
         self.pocket_measure_button.setEnabled(False)
         self.pocket_measure_button.clicked.connect(self._request_pocket_measurement)
-        actions.addWidget(self.pocket_measure_button)
-        actions.addStretch(1)
-        layout.addLayout(actions)
         content.addWidget(group)
 
     def _build_quality_panel(self, content: Any) -> None:
@@ -107,7 +106,7 @@ class Task14PageMixin(QtMixinContext):
         layout.addWidget(
             _label(
                 self.w,
-                "Diagnostics are descriptive evidence from the quality service; no score or causal interpretation is inferred here.",
+                "Review coordinate warnings before interpreting differences. These diagnostics do not establish biological causes.",
                 "helpText",
             )
         )

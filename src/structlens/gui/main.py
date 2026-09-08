@@ -7,6 +7,21 @@ from pathlib import Path
 from typing import Any
 
 
+def _fit_window_to_screen(panel: Any) -> None:
+    """Use Qt logical pixels and leave space for window decorations."""
+
+    screen = panel.screen()
+    if screen is None:
+        panel.resize(1024, 680)
+        return
+    available = screen.availableGeometry()
+    width = min(1280, max(1, available.width() - 32))
+    height = min(820, max(1, available.height() - 64))
+    panel.setMinimumSize(min(panel.minimumWidth(), width), min(panel.minimumHeight(), height))
+    panel.resize(width, height)
+    panel.move(available.x() + (available.width() - width) // 2, available.y() + (available.height() - height) // 2)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Start the file-based GUI without requiring a PyMOL host."""
 
@@ -31,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     if icon_path.exists():
         application.setWindowIcon(qt.gui.QIcon(str(icon_path)))
     panel: Any = build_qt_panel(command=None)
-    panel.resize(1280, 820)
+    _fit_window_to_screen(panel)
     panel.show()
     return int(application.exec())
 

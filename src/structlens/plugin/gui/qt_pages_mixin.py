@@ -10,10 +10,20 @@ from .qt_context import *  # noqa: F401,F403
 class PageMixin(QtMixinContext):
     """Cohesive GUI-only pages behavior composed into PanelController."""
 
+    def _add_collapsible(self, content: Any, title: str, group: Any) -> Any:
+        """Keep optional controls available through a native keyboard-accessible button."""
+        toggle = _button(self.w, title, "secondaryButton")
+        toggle.setCheckable(True)
+        toggle.toggled.connect(group.setVisible)
+        group.hide()
+        content.addWidget(toggle)
+        content.addWidget(group)
+        return toggle
+
     def _build_project_page(self) -> None:
         _, content = self._add_page(
             "Project",
-            "Load two coordinate sources, select chains, and keep the evidence trail reproducible.",
+            "Load a reference and a target structure, then select the chains to compare.",
         )
         source_group = self.w.QGroupBox("Sources", self.widget)
         source_layout = self.w.QGridLayout(source_group)
@@ -94,18 +104,18 @@ class PageMixin(QtMixinContext):
         )
         note.setWordWrap(True)
         content.addWidget(note)
-        backend_group = self.w.QGroupBox("About · Scientific Backends", self.widget)
+        self.backend_group = backend_group = self.w.QGroupBox("Scientific software versions", self.widget)
         backend_layout = self.w.QVBoxLayout(backend_group)
         backend_layout.setContentsMargins(18, 14, 18, 14)
         versions = backend_versions()
         backend_layout.addWidget(
             _label(self.w, " · ".join(f"{key}: {value}" for key, value in versions.items()), "fieldMeta")
         )
-        content.addWidget(backend_group)
+        self.backend_toggle = self._add_collapsible(content, "About · Scientific software", backend_group)
         actions = self.w.QHBoxLayout()
-        load_button = _button(self.w, "Load sources", "secondaryButton")
-        load_button.clicked.connect(self._load_sources_from_edits)
-        actions.addWidget(load_button)
+        self.load_sources_button = _button(self.w, "Load sources", "secondaryButton")
+        self.load_sources_button.clicked.connect(self._load_sources_from_edits)
+        actions.addWidget(self.load_sources_button)
         save_button = _button(self.w, "Save Project…", "secondaryButton")
         save_button.clicked.connect(self._save_project)
         actions.addWidget(save_button)
@@ -120,9 +130,9 @@ class PageMixin(QtMixinContext):
     def _build_alignment_page(self) -> None:
         _, content = self._add_page(
             "Structures",
-            "Compare folds and choose the correspondence policy before superposition. The bundled US-align status is recorded in provenance.",
+            "Choose how equivalent residues are matched, then use Compare structures above.",
         )
-        policy_group = self.w.QGroupBox("Correspondence policy", self.widget)
+        policy_group = self.w.QGroupBox("Comparison method", self.widget)
         policy_layout = self.w.QGridLayout(policy_group)
         policy_layout.setContentsMargins(18, 20, 18, 18)
         policy_layout.setHorizontalSpacing(14)
@@ -144,28 +154,16 @@ class PageMixin(QtMixinContext):
         self.mode_combo.currentTextChanged.connect(self._update_mode_help)
         content.addWidget(policy_group)
 
-        comparison_group = self.w.QGroupBox("Comparison mode", self.widget)
-        comparison_layout = self.w.QGridLayout(comparison_group)
-        comparison_layout.setContentsMargins(18, 20, 18, 18)
-        comparison_layout.setHorizontalSpacing(14)
-        comparison_layout.setVerticalSpacing(8)
-        comparison_layout.addWidget(_label(self.w, "TOPOLOGY", "fieldLabel"), 0, 0)
-        self.comparison_combo = self.w.QComboBox(comparison_group)
-        # The desktop panel currently has one reference and one target source
-        # picker. Keep this selector honest until a multi-target source
-        # collection workflow is promoted into the GUI; the application service
-        # already exposes the v0.2 multi-structure APIs for scripted use.
-        for label, value in (("Pairwise · one reference + one target", ComparisonMode.PAIRWISE.value),):
-            self.comparison_combo.addItem(label, value)
-        comparison_layout.addWidget(self.comparison_combo, 1, 0)
+        # ponytail: retain the adapter without presenting a selector with one choice.
+        self.comparison_combo = self.w.QComboBox(self.widget)
+        self.comparison_combo.addItem("Pairwise · one reference + one target", ComparisonMode.PAIRWISE.value)
+        self.comparison_combo.hide()
         self.comparison_help = _label(self.w, "", "helpText")
-        self.comparison_help.setWordWrap(True)
-        comparison_layout.addWidget(self.comparison_help, 1, 1)
-        comparison_layout.setColumnStretch(1, 1)
+        self.comparison_help.setParent(self.widget)
+        self.comparison_help.hide()
         self.comparison_combo.currentTextChanged.connect(self._update_comparison_help)
-        content.addWidget(comparison_group)
 
-        thresholds = self.w.QGroupBox("Auto thresholds and refinement", self.widget)
+        self.advanced_group = thresholds = self.w.QGroupBox("Thresholds and refinement", self.widget)
         threshold_layout = self.w.QGridLayout(thresholds)
         threshold_layout.setContentsMargins(18, 20, 18, 18)
         threshold_layout.setHorizontalSpacing(14)
@@ -182,7 +180,7 @@ class PageMixin(QtMixinContext):
         self.usalign_status = _label(self.w, "Bundled backend · Ready", "fieldMeta")
         threshold_layout.addWidget(self.usalign_status, 1, 2)
         self.usalign_edit = self.w.QLineEdit(thresholds)
-        self.usalign_edit.setPlaceholderText("Optional custom executable (Advanced Settings)")
+        self.usalign_edit.setPlaceholderText("Optional path; leave empty to use bundled US-align")
         threshold_layout.addWidget(_label(self.w, "CUSTOM EXECUTABLE (ADVANCED)", "fieldLabel"), 4, 0)
         threshold_layout.addWidget(self.usalign_edit, 5, 0, 1, 3)
         self.refined_check = self.w.QCheckBox("Refine outliers after strict fit", thresholds)
@@ -195,7 +193,7 @@ class PageMixin(QtMixinContext):
         self.cutoff_spin.setSuffix(" Å")
         threshold_layout.addWidget(self.cutoff_spin, 3, 2)
         threshold_layout.setColumnStretch(2, 1)
-        content.addWidget(thresholds)
+        self.advanced_toggle = self._add_collapsible(content, "Advanced options", thresholds)
 
         self.manual_group = self.w.QGroupBox("Manual pairs", self.widget)
         manual_layout = self.w.QVBoxLayout(self.manual_group)
@@ -221,7 +219,7 @@ class PageMixin(QtMixinContext):
         structure_results_layout.setContentsMargins(18, 16, 18, 16)
         self.structure_result_summary = _label(
             self.w,
-            "No structure comparison result yet. Run comparison to populate this tab.",
+            "No comparison yet. Choose a method and use Compare structures above.",
             "inlineNote",
         )
         self.structure_result_summary.setWordWrap(True)
@@ -266,7 +264,7 @@ class PageMixin(QtMixinContext):
         msa_layout.setContentsMargins(18, 16, 18, 16)
         self.msa_summary_label = _label(
             self.w,
-            "No MSA result loaded. Run the MSA service and pass its immutable result to set_msa_result().",
+            "Sequence alignment appears after a comparison.",
             "inlineNote",
         )
         self.msa_summary_label.setWordWrap(True)
@@ -278,7 +276,7 @@ class PageMixin(QtMixinContext):
         msa_layout.addWidget(self.msa_table, 1)
         self.sequence_chart_status = _label(
             self.w,
-            "Sequence conservation chart unavailable until an authoritative MSA or comparison result is present.",
+            "Sequence conservation appears when an alignment or comparison result is available.",
             "inlineNote",
         )
         self.sequence_chart_status.setWordWrap(True)
@@ -304,7 +302,7 @@ class PageMixin(QtMixinContext):
             self._msa_chart_dataset = None
             self._clear_chart_layout(self.sequence_chart_layout)
             self.sequence_chart_status.setText(
-                "Sequence conservation chart unavailable until an authoritative MSA or comparison result is present."
+                "Sequence conservation appears when an alignment or comparison result is available."
             )
             self._update_chart_export_state(self.chart_combo.currentText())
             return
@@ -337,9 +335,9 @@ class PageMixin(QtMixinContext):
         _, content = self._add_page(
             "Residues",
             (
-                "Inspect the authoritative correspondence table; double-click a row to select it."
+                "Inspect matched and unmatched residues; double-click a row to select it."
                 if self.command is None
-                else "Inspect the authoritative correspondence table; double-click a row to focus it in PyMOL."
+                else "Inspect matched and unmatched residues; double-click a row to focus it in PyMOL."
             ),
         )
         self.residue_summary = _label(self.w, "No comparison yet.", "inlineNote")
@@ -401,33 +399,33 @@ class PageMixin(QtMixinContext):
         site_layout.addWidget(self.site_residues_edit, 1, 1)
         self.site_ligand_edit = self.w.QLineEdit(site_group)
         self.site_ligand_edit.setPlaceholderText("Ligand ID (for ligand radius)")
-        site_layout.addWidget(_label(self.w, "LIGAND ID", "fieldLabel"), 0, 3)
-        site_layout.addWidget(self.site_ligand_edit, 1, 3)
+        site_layout.addWidget(_label(self.w, "LIGAND ID", "fieldLabel"), 2, 1)
+        site_layout.addWidget(self.site_ligand_edit, 3, 1)
         self.site_radius_spin = self.w.QDoubleSpinBox(site_group)
         self.site_radius_spin.setRange(0.1, 20.0)
         self.site_radius_spin.setValue(5.0)
         self.site_radius_spin.setSuffix(" Å")
-        site_layout.addWidget(_label(self.w, "RADIUS", "fieldLabel"), 0, 2)
-        site_layout.addWidget(self.site_radius_spin, 1, 2)
-        self.site_define_button = _button(self.w, "Define site", "secondaryButton")
+        site_layout.addWidget(_label(self.w, "RADIUS", "fieldLabel"), 2, 0)
+        site_layout.addWidget(self.site_radius_spin, 3, 0)
+        self.site_define_button = _button(self.w, "Add site to analysis", "secondaryButton")
         self.site_define_button.clicked.connect(self._define_site_from_controls)
-        site_layout.addWidget(self.site_define_button, 1, 4)
+        site_layout.addWidget(self.site_define_button, 4, 0, 1, 2)
         self.site_status_label = _label(
             self.w,
-            "Site metrics appear after an analysis service run; this panel never estimates them locally.",
+            "Add a site to include it in the next comparison, then use Compare structures above.",
             "inlineNote",
         )
         self.site_status_label.setWordWrap(True)
-        site_layout.addWidget(self.site_status_label, 2, 0, 1, 5)
+        site_layout.addWidget(self.site_status_label, 5, 0, 1, 2)
         content.addWidget(site_group)
 
-        metrics = self.w.QGroupBox("Authoritative site metrics", self.widget)
+        metrics = self.w.QGroupBox("Site results", self.widget)
         metrics_layout = self.w.QVBoxLayout(metrics)
         metrics_layout.setContentsMargins(18, 16, 18, 16)
         metrics_layout.addWidget(
             _label(
                 self.w,
-                "Coverage, global-frame/site-fitted RMSD, SASA (Å²), atomic envelope volume (Å³), and interaction fingerprints are read from the site service result.",
+                "Explore site coverage, global and site-fitted RMSD, exposure (SASA), atomic envelope volume, and interactions from the comparison.",
                 "helpText",
             )
         )
@@ -459,7 +457,7 @@ class PageMixin(QtMixinContext):
     def _build_visualization_page(self) -> None:
         _, content = self._add_page(
             "Charts",
-            "Use authoritative sequence and structure datasets, inspect what each chart means, and route exports through a reproducible workflow.",
+            "Choose a chart to explore the comparison, then save its data or image from Export.",
         )
         chart_group = self.w.QGroupBox("Scientific chart", self.widget)
         chart_layout = self.w.QGridLayout(chart_group)
@@ -486,7 +484,7 @@ class PageMixin(QtMixinContext):
         chart_layout.addWidget(self.chart_combo, 1, 0)
         self.chart_explanation = _label(
             self.w,
-            "Charts consume the authoritative analysis state. Values include units and remain exportable as data.",
+            "Charts show the current comparison. Values include units and can be exported as data.",
             "helpText",
         )
         self.chart_explanation.setWordWrap(True)
@@ -494,12 +492,12 @@ class PageMixin(QtMixinContext):
         chart_layout.setColumnStretch(1, 1)
         self.chart_combo.currentTextChanged.connect(self._update_chart_explanation)
         content.addWidget(chart_group)
-        chart_preview = self.w.QGroupBox("Authoritative chart preview", self.widget)
+        chart_preview = self.w.QGroupBox("Chart preview", self.widget)
         chart_preview_layout = self.w.QVBoxLayout(chart_preview)
         chart_preview_layout.setContentsMargins(18, 16, 18, 16)
         self.chart_preview_status = _label(
             self.w,
-            "Chart unavailable. Run the corresponding scientific service first.",
+            "No chart yet. Compare structures to see available charts.",
             "inlineNote",
         )
         self.chart_preview_status.setWordWrap(True)
@@ -603,22 +601,23 @@ class PageMixin(QtMixinContext):
         self.pymol_edit.setPlaceholderText("Configured PyMOL executable or PATH-resolved command")
         self.pymol_edit.textChanged.connect(lambda _text: self._refresh_pymol_status())
         integration_layout.addWidget(self.pymol_edit, 3, 0, 1, 3)
-        actions = self.w.QHBoxLayout()
-        open_button = _button(self.w, "Open in PyMOL", "primaryButton")
+        actions = self.w.QGridLayout()
+        self.pymol_open_button = open_button = _button(self.w, "Open in PyMOL", "primaryButton")
         open_button.clicked.connect(self._open_in_pymol)
-        actions.addWidget(open_button)
-        export_bundle = _button(self.w, "Export for PyMOL…", "secondaryButton")
+        actions.addWidget(open_button, 0, 0)
+        self.pymol_export_button = export_bundle = _button(self.w, "Export for PyMOL…", "secondaryButton")
         export_bundle.clicked.connect(self._export_pymol_bundle)
-        actions.addWidget(export_bundle)
+        actions.addWidget(export_bundle, 0, 1)
         plugin_help = _button(self.w, "Plugin installation instructions", "secondaryButton")
         plugin_help.clicked.connect(
             lambda: self._set_status(
                 "Install StructLens-PyMOL from the amgoncalvesusp/pymol-plugins GitHub release, then open the bundle in PyMOL."
             )
         )
-        actions.addWidget(plugin_help)
-        actions.addStretch(1)
+        actions.addWidget(plugin_help, 1, 0, 1, 2)
         integration_layout.addLayout(actions, 4, 0, 1, 3)
+        self.pymol_report_status = _label(self.w, "", "inlineNote")
+        integration_layout.addWidget(self.pymol_report_status, 5, 0, 1, 3)
         content.addWidget(integration)
         host_actions = self.w.QHBoxLayout()
         host_actions.addStretch(1)
@@ -626,7 +625,7 @@ class PageMixin(QtMixinContext):
             host_actions.addWidget(
                 _label(
                     self.w,
-                    "Standalone mode · Open in PyMOL creates a validated bundle and launches the external application when configured.",
+                    "Standalone mode · PyMOL export depends on the loaded project format. See availability above.",
                     "fieldMeta",
                 )
             )
@@ -644,31 +643,35 @@ class PageMixin(QtMixinContext):
     def _build_export_page(self) -> None:
         _, content = self._add_page(
             "Export",
-            "Write the current evidence state as tabular data, chart data, or a portable PyMOL interchange bundle.",
+            "Export the last completed comparison as tables, chart data or images.",
         )
+        self.export_state_label = _label(self.w, "No comparison yet.", "inlineNote")
+        self.export_state_label.setWordWrap(True)
+        content.addWidget(self.export_state_label)
         exports = self.w.QGroupBox("Evidence exports", self.widget)
-        export_layout = self.w.QHBoxLayout(exports)
+        export_layout = self.w.QGridLayout(exports)
         export_layout.setContentsMargins(18, 20, 18, 18)
-        for label, callback in (
-            ("XLSX", self._export_xlsx),
-            ("CSV", self._export_csv),
-            ("TSV", self._export_tsv),
-            ("JSON", self._export_json),
-            ("Chart XLSX", self._export_chart_xlsx),
-            ("Chart JPEG", lambda: self._export_chart_image("jpeg", 300)),
-            ("Chart TIFF", lambda: self._export_chart_image("tiff", 600)),
+        for index, (label, callback) in enumerate(
+            (
+                ("XLSX", self._export_xlsx),
+                ("CSV", self._export_csv),
+                ("TSV", self._export_tsv),
+                ("JSON", self._export_json),
+                ("Chart XLSX", self._export_chart_xlsx),
+                ("Chart JPEG", lambda: self._export_chart_image("jpeg", 300)),
+                ("Chart TIFF", lambda: self._export_chart_image("tiff", 600)),
+            )
         ):
             button = _button(self.w, f"Export {label}…", "secondaryButton")
             button.clicked.connect(callback)
             if label.startswith("Chart"):
                 self.chart_export_buttons.append(button)
-            export_layout.addWidget(button)
-        export_layout.addStretch(1)
+            export_layout.addWidget(button, index // 2, index % 2)
         content.addWidget(exports)
         self._update_chart_export_state(self.chart_combo.currentText())
         note = _label(
             self.w,
-            "The selected chart profile controls chart exports. Non-deviation profiles remain available as structured data through the application API.",
+            "Choose a chart on Charts before exporting its data or image. Unavailable chart exports are disabled.",
             "inlineNote",
         )
         note.setWordWrap(True)
@@ -680,14 +683,17 @@ class PageMixin(QtMixinContext):
         _, content = self._add_page(
             "Results",
             (
-                "Review global metrics, branch choice, and export the same result used by the evidence tables."
+                "Review the comparison summary, check coordinate quality, then explore details or export results."
                 if self.command is None
-                else "Review global metrics, branch choice, and export the same result used by the PyMOL view."
+                else "Review the comparison summary and coordinate quality before exploring it in PyMOL."
             ),
         )
         self.result_decision = _label(self.w, "No comparison yet.", "resultDecision")
         self.result_decision.setWordWrap(True)
         content.addWidget(self.result_decision)
+        self.results_state_label = _label(self.w, "No comparison yet.", "inlineNote")
+        self.results_state_label.setWordWrap(True)
+        content.addWidget(self.results_state_label)
         metrics = self.w.QGroupBox("Global metrics", self.widget)
         metric_layout = self.w.QGridLayout(metrics)
         metric_layout.setContentsMargins(18, 20, 18, 18)
@@ -696,9 +702,9 @@ class PageMixin(QtMixinContext):
         self.result_labels: dict[str, Any] = {}
         for row, (key, title, unit) in enumerate(
             (
-                ("sequence_identity", "Sequence identity", "fraction"),
-                ("sequence_similarity", "Sequence similarity", "fraction"),
-                ("sequence_coverage", "Sequence coverage", "fraction"),
+                ("sequence_identity", "Sequence identity", ""),
+                ("sequence_similarity", "Sequence similarity", ""),
+                ("sequence_coverage", "Sequence coverage", ""),
                 ("strict_rmsd_angstrom", "Strict Cα RMSD", "Å"),
                 ("refined_rmsd_angstrom", "Refined Cα RMSD", "Å"),
                 ("tm_score", "TM-score", "score"),
@@ -713,7 +719,10 @@ class PageMixin(QtMixinContext):
             self.result_labels[key] = value
         metric_layout.setColumnStretch(1, 1)
         content.addWidget(metrics)
-        self._build_presentation_sections(content)
+        self.report_details_group = self.w.QGroupBox("Detailed report", self.widget)
+        details_layout = self.w.QVBoxLayout(self.report_details_group)
+        self._build_presentation_sections(details_layout)
+        self.report_details_toggle = self._add_collapsible(content, "Show detailed report", self.report_details_group)
         self._build_quality_panel(content)
         history = self.w.QGroupBox("Compiled analysis history", self.widget)
         history_layout = self.w.QVBoxLayout(history)

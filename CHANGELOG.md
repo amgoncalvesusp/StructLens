@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Improved GUI page navigation, responsive layouts, scrolling, and collapsible advanced controls across supported display scales.
+- Added a single Compare workflow with pending-report state, busy/export safety, and manual pair restoration.
+- Made the unavailable PyMOL bundle writer visible and disabled while preserving the legacy handoff and table/image exports.
+
 ## 0.4.0
 
 - Added canonical structural quality evidence with severity filtering and remediation details.

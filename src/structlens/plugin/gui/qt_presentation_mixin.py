@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import math
+
 from .qt_context import *  # noqa: F401,F403
 
 
@@ -11,14 +13,14 @@ class PresentationMixin(QtMixinContext):
     """Render canonical report widgets from ``ReportPresentation`` only."""
 
     def _build_presentation_sections(self, content: Any) -> None:
-        group = self.w.QGroupBox("Canonical scientific sections", self.widget)
+        group = self.w.QGroupBox("Scientific details", self.widget)
         layout = self.w.QVBoxLayout(group)
         layout.setContentsMargins(18, 16, 18, 16)
         self.report_section_labels: dict[str, Any] = {}
         for name, title in _SECTION_TITLES:
             section = self.w.QGroupBox(title, group)
             section_layout = self.w.QVBoxLayout(section)
-            value = _label(self.w, "Unavailable — no canonical report loaded", "inlineNote")
+            value = _label(self.w, "Run Compare structures to view available results.", "inlineNote")
             value.setWordWrap(True)
             section_layout.addWidget(value)
             layout.addWidget(section)
@@ -59,19 +61,19 @@ class PresentationMixin(QtMixinContext):
             "tm_score",
             "mapped_residue_count",
         ):
-            self.result_labels[key].setText(str(row.get(key, "Unavailable — value not reported")))
+            self.result_labels[key].setText(_display_metric(key, row.get(key)))
         self.result_labels["mutation_count"].setText(str(len(presentation.sections.mutations.rows)))
         self.structure_result_table.setRowCount(1)
         structure_values = (
             reference,
             target,
             decision,
-            str(row.get("strict_rmsd_angstrom", "Unavailable")),
-            str(row.get("refined_rmsd_angstrom", "Unavailable")),
-            str(row.get("tm_score", "Unavailable")),
+            _display_metric("strict_rmsd_angstrom", row.get("strict_rmsd_angstrom")),
+            _display_metric("refined_rmsd_angstrom", row.get("refined_rmsd_angstrom")),
+            _display_metric("tm_score", row.get("tm_score")),
             str(row.get("mapped_residue_count", "Unavailable")),
             "See correspondence status",
-            "canonical report",
+            "comparison report",
         )
         for column, value in enumerate(structure_values):
             self.structure_result_table.setItem(0, column, self.w.QTableWidgetItem(value))
@@ -147,18 +149,18 @@ class PresentationMixin(QtMixinContext):
                 row.get("reference", "Unavailable"),
                 row.get("target", "Unavailable"),
                 row.get("decision", "Unavailable"),
-                row.get("sequence_identity", "Unavailable"),
-                row.get("sequence_coverage", "Unavailable"),
-                row.get("strict_rmsd_angstrom", "Unavailable"),
-                row.get("refined_rmsd_angstrom", "Unavailable"),
-                row.get("tm_score", "Unavailable"),
+                _display_metric("sequence_identity", row.get("sequence_identity")),
+                _display_metric("sequence_coverage", row.get("sequence_coverage")),
+                _display_metric("strict_rmsd_angstrom", row.get("strict_rmsd_angstrom")),
+                _display_metric("refined_rmsd_angstrom", row.get("refined_rmsd_angstrom")),
+                _display_metric("tm_score", row.get("tm_score")),
                 row.get("mapped_residue_count", "Unavailable"),
                 len(presentation.sections.mutations.rows),
             )
             for column, value in enumerate(values):
                 self.results_table.setItem(row_index, column, self.w.QTableWidgetItem(str(value)))
         self.results_history_status.setText(
-            f"{len(self._presentation_history)} completed canonical presentation(s) · report values only."
+            f"{len(self._presentation_history)} completed comparison(s). Full precision is retained in exports."
         )
 
     def _install_presentation_charts(self, presentation: ReportPresentation) -> None:
@@ -306,6 +308,21 @@ class PresentationMixin(QtMixinContext):
             self._show_error(message)
             return
         self._set_status("Volume measurements are included in the canonical pocket report.")
+
+
+def _display_metric(key: str, value: Any) -> str:
+    """Format the view only; reports and exports keep their full precision."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value) if value is not None else "Unavailable — value not reported"
+    if not math.isfinite(numeric):
+        return "Unavailable — value not reported"
+    if key.startswith("sequence_"):
+        return f"{numeric:.1%}"
+    if key in {"mapped_residue_count", "mutation_count"}:
+        return str(int(numeric))
+    return f"{numeric:.3f}"
 
 
 def _section_text(title: str, section: Any) -> str:

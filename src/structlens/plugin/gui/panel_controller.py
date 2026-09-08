@@ -58,7 +58,10 @@ class PanelController(
         self.widget = self.w.QWidget(parent)
         self.widget.setObjectName("structlensPanel")
         self.widget.setWindowTitle("StructLens · Evidence Bench")
-        self.widget.setMinimumSize(840, 600)
+        self.widget.setMinimumSize(640, 420)
+        self._workflow_ready = False
+        self._completed_configuration: tuple[Any, ...] | None = None
+        self._pending_configuration: tuple[Any, ...] | None = None
         icon_path = Path(__file__).parents[1] / "assets" / "structlens_icon.png"
         if icon_path.exists():
             self.widget.setWindowIcon(self.g.QIcon(str(icon_path)))
@@ -107,15 +110,16 @@ class PanelController(
         self._msa_chart_dataset: ChartDataset | None = None
         self._build_shell()
         self._build_project_page()
-        self._build_mutations_page()
         self._build_alignment_page()
+        self._build_results_page()
+        self._build_mutations_page()
         self._build_residues_page()
         self._build_sites_page()
         self._build_visualization_page()
         self._build_pymol_page()
-        self._build_results_page()
         self._build_export_page()
         self._wire_navigation()
+        self._wire_workflow_controls()
         self._set_status(self.model.status)
         self._update_mode_help(self.mode_combo.currentText())
         self._update_comparison_help(self.comparison_combo.currentText())

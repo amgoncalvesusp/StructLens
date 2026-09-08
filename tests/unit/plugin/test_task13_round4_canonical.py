@@ -486,7 +486,7 @@ def test_canonical_pymol_bundle_route_fails_closed_until_snapshot_native_writer_
 
     assert not calls
     assert not output.exists()
-    assert errors and ("task 15" in errors[-1].lower() or "snapshot" in errors[-1].lower())
+    assert errors and "unavailable for this report format" in errors[-1].lower()
     controller.close()
     panel.deleteLater()
 

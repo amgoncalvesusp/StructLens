@@ -38,15 +38,15 @@ def test_qt_panel_builds_operate_workflow(application) -> None:
     assert panel.objectName() == "structlensPanel"
     assert controller.nav.count() == 9
     assert controller.pages.count() == 9
-    assert controller.compare_button.text() == "Compare"
+    assert controller.compare_button.text() == "Compare structures"
     assert controller.mode_combo.count() == 4
     assert controller.comparison_combo.count() == 1
     assert controller.comparison_combo.currentData() == "pairwise"
     assert controller.mutation_table.columnCount() == 8
     assert controller.residue_table.columnCount() == 10
     assert controller.msa_table.columnCount() == 3
-    assert controller.nav.item(4).text() == "Sites"
-    assert controller.nav.item(6).text() == "PyMOL"
+    assert controller.nav.item(SCIENTIFIC_SECTIONS.index("Sites")).text() == "Sites & pockets"
+    assert controller.nav.item(SCIENTIFIC_SECTIONS.index("PyMOL")).text() == "Open in PyMOL"
     assert controller.nav.item(8).text() == "Export"
 
     controller.close()
@@ -86,7 +86,7 @@ def test_analysis_and_manual_recovery_land_on_the_relevant_pages(application) ->
             alignment_decision="test",
         )
     )
-    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Structures")
+    assert controller.nav.currentRow() == SCIENTIFIC_SECTIONS.index("Results")
     assert controller.structure_result_table.rowCount() == 1
     assert controller.results_table.rowCount() == 1
 
@@ -556,7 +556,7 @@ def test_gui_has_exactly_one_primary_compare_action(application) -> None:
     ]
 
     assert len(compare_actions) == 1
-    assert compare_actions[0].text() == "Compare"
+    assert compare_actions[0].text() == "Compare structures"
     controller = panel._structlens_controller
     controller.close()
     panel.deleteLater()
@@ -624,7 +624,7 @@ def test_report_finished_populates_all_v03_views_without_payload_staging(
     payloads = controller._v03_bundle_kwargs()
     for section in ("msa_summary", "conservation", "interactions", "sites", "evidence", "vectors"):
         assert payloads[section] is not None, section
-    assert report.report_id in controller.footer_status.text()
+    assert report.report_id in controller.footer_status.toolTip()
 
     controller.close()
     panel.deleteLater()
@@ -704,12 +704,12 @@ def test_header_compare_restores_its_submit_label_after_busy_state(application) 
     controller = panel._structlens_controller
 
     controller._set_busy(True)
-    assert controller.compare_button.text() != "Compare"
+    assert controller.compare_button.text() == "Comparing…"
     assert controller.compare_button.isEnabled() is False
 
     controller._set_busy(False)
-    assert controller.compare_button.text() == "Compare"
-    assert controller.compare_button.isEnabled() is True
+    assert controller.compare_button.text() == "Compare structures"
+    assert controller.compare_button.isEnabled() is False  # Sources are still missing.
     assert controller.run_button is controller.compare_button
 
     controller.close()

@@ -302,7 +302,7 @@ def test_start_analysis_reports_invalid_request_without_submitting_a_future(cont
 
     assert errors == ["invalid chain request"]
     assert controller._future is None
-    assert controller.nav.currentRow() == 2
+    assert controller.pages.currentWidget().objectName() == "pageStructures"
 
 
 def test_poll_pending_future_does_not_publish_a_partial_report(controller) -> None:

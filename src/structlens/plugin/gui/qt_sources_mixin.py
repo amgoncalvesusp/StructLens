@@ -263,6 +263,98 @@ class SourceMixin(QtMixinContext):
             reference_chain_id=self._combo_data(self.reference_chain_combo),
             target_chain_id=self._combo_data(self.target_chain_combo),
         )
+        self._refresh_workflow_state()
+
+    def _wire_workflow_controls(self) -> None:
+        for edit in (self.reference_edit, self.target_edit, self.usalign_edit):
+            edit.textChanged.connect(self._refresh_workflow_state)
+        for spin in (self.identity_spin, self.coverage_spin, self.cutoff_spin):
+            spin.valueChanged.connect(self._refresh_workflow_state)
+        self.mode_combo.currentIndexChanged.connect(self._refresh_workflow_state)
+        self.refined_check.toggled.connect(self._refresh_workflow_state)
+        self.manual_edit.textChanged.connect(self._refresh_workflow_state)
+        self._workflow_ready = True
+        self._refresh_workflow_state()
+
+    def _configuration_key(self) -> tuple[Any, ...]:
+        """Snapshot only GUI inputs; never recalculate scientific evidence."""
+        sources = tuple(
+            (
+                getattr(self, f"{role}_edit").text().strip(),
+                loaded.snapshot.content_id if loaded is not None else None,
+                self._combo_data(getattr(self, f"{role}_model_combo")),
+                self._combo_data(getattr(self, f"{role}_chain_combo")),
+            )
+            for role in ("reference", "target")
+            for loaded in (getattr(self, f"{role}_loaded_source"),)
+        )
+        manual = self.manual_edit.toPlainText().strip() if self.mode_combo.currentData() == "manual" else ""
+        return sources, self._settings(), manual, self._site_definitions
+
+    def _refresh_workflow_state(self, *_: object) -> None:
+        if not self._workflow_ready:
+            return
+        ready = True
+        edited = False
+        descriptions = []
+        for role in ("reference", "target"):
+            loaded = getattr(self, f"{role}_loaded_source")
+            path = getattr(self, f"{role}_edit").text().strip()
+            model = self._combo_data(getattr(self, f"{role}_model_combo"))
+            chain = self._combo_data(getattr(self, f"{role}_chain_combo"))
+            changed = bool(path) and (loaded is None or path != str(loaded.path))
+            edited = edited or changed
+            ready = ready and loaded is not None and not changed and bool(path) and model is not None and chain is not None
+            source = f"{Path(path).name} · model {model or '—'} / chain {chain or '—'}" if path else "not loaded"
+            descriptions.append(f"{role.title()}: {source}")
+        self.load_sources_button.setText("Load edited sources" if edited else "Load sources")
+        self.load_sources_button.setEnabled(not self.model.busy)
+        self.compare_button.setEnabled(ready and not self.model.busy)
+        self.compare_button.setText("Comparing…" if self.model.busy else "Compare structures")
+        self.workflow_context.setText("\n".join((*descriptions, f"Method: {self.mode_combo.currentText()}")))
+        completed = self.model.report is not None or self.model.analysis is not None
+        pending = completed and self._configuration_key() != self._completed_configuration
+        if self.model.busy:
+            state, hint = "Comparing…", "Comparison in progress. The last completed result remains available."
+        elif self.model.error:
+            state, hint = "Needs attention", self.model.error
+        elif not ready:
+            state = "Load sources"
+            hint = "Load edited sources before comparing." if edited else "Load both structures and select their models and chains."
+        elif pending:
+            state, hint = "Changes pending", "Settings changed. Run Compare structures to update the results."
+        elif completed:
+            state, hint = "Complete", "Comparison complete. Explore the results or export them."
+        else:
+            state, hint = "Ready", "Ready. Run Compare structures."
+        self.header_status.setText(state)
+        self.header_status.setToolTip(hint)
+        self.compare_button.setToolTip(hint)
+        pymol_supported = self.model.report is None and self.model.analysis is not None
+        for button in (self.pymol_open_button, self.pymol_export_button):
+            button.setEnabled(pymol_supported)
+        self.pymol_report_status.setText(
+            "PyMOL export is unavailable for this report format in this version. Use the table and image exports."
+            if self.model.report is not None
+            else "PyMOL bundle export is available for this legacy comparison." if pymol_supported
+            else "Load a supported comparison project to export a PyMOL bundle."
+        )
+        if not pymol_supported:
+            self.pymol_status.setText("See report-format availability below.")
+        if completed:
+            report = self.model.report
+            identity = f"Report {report.report_id[:12]}" if report is not None else "Legacy comparison (unverified)"
+            detail = f"{identity} · last completed result."
+            if pending:
+                detail += " Changes pending; exports use this result, not the edited settings."
+            self.results_state_label.setText(detail)
+            self.export_state_label.setText(detail)
+            if report is not None:
+                self.results_state_label.setToolTip(report.report_id)
+                self.export_state_label.setToolTip(report.report_id)
+        else:
+            self.results_state_label.setText("No comparison yet. " + hint)
+            self.export_state_label.setText("Run Compare structures before exporting results.")
 
     def _combo_data(self, combo: Any) -> str | None:
         return _combo_data(combo)
@@ -289,6 +381,8 @@ class SourceMixin(QtMixinContext):
         return _selected_chain_for_gui(structure, combo, model_combo)
 
     def _start_analysis(self) -> None:
+        if self.model.busy or self._future is not None:
+            return
         reference_loaded = self.reference_loaded_source
         target_loaded = self.target_loaded_source
         if reference_loaded is None or target_loaded is None:
@@ -317,7 +411,7 @@ class SourceMixin(QtMixinContext):
             self._report_controller.verify_current_source(target_loaded.path, target_loaded.snapshot)
         except (OSError, SnapshotError) as exc:
             self._show_error(f"Could not capture verified source input: {exc}")
-            self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
+            self.nav.setCurrentRow(0)
             return
         except (TypeError, ValueError) as exc:
             self._show_error(str(exc))
@@ -344,7 +438,8 @@ class SourceMixin(QtMixinContext):
         self._submit_report_request(request)
 
     def _submit_report_request(self, request: AnalysisReportRequest) -> None:
-        self.model = self.model.with_busy("Building canonical analysis report…")
+        self._pending_configuration = self._configuration_key()
+        self.model = self.model.with_busy("Comparing structures…")
         self._pending_report_request = request
         self._set_busy(True)
         self._cancel_event = Event()
@@ -481,6 +576,7 @@ class SourceMixin(QtMixinContext):
                 self._populate_report(result, request=request)
             except (TypeError, ValueError) as exc:
                 self._pending_report_request = None
+                self._pending_configuration = None
                 self._report_controller.discard_pending()
                 self._set_busy(False)
                 self._show_error(f"Comparison result was rejected before acceptance: {exc}")
@@ -491,12 +587,14 @@ class SourceMixin(QtMixinContext):
         self._set_busy(False)
         self._populate_result(result)
         self._set_status(f"Analysis complete · {len(result.correspondences)} aligned positions")
-        # The comparison result is immediately visible on the Structures tab;
-        # Results remains the compiled cross-analysis view.
-        self.nav.setCurrentRow(_STRUCTURES_PAGE_INDEX)
+        self._completed_configuration = self._pending_configuration or self._configuration_key()
+        self._pending_configuration = None
+        self._refresh_workflow_state()
+        self.nav.setCurrentRow(_RESULTS_PAGE_INDEX)
 
     def _analysis_failed(self, message: str) -> None:
         self._pending_report_request = None
+        self._pending_configuration = None
         self._report_controller.discard_pending()
         self.model = self.model.with_error(f"Comparison failed: {message}")
         self._set_busy(False)
@@ -504,18 +602,21 @@ class SourceMixin(QtMixinContext):
 
     def _analysis_cancelled(self) -> None:
         self._pending_report_request = None
+        self._pending_configuration = None
         self._report_controller.discard_pending()
         self.model = self.model.with_status("Comparison cancelled.")
         self._set_busy(False)
         self._set_status("Comparison cancelled; no result was changed")
 
     def _set_busy(self, busy: bool) -> None:
+        busy = busy or self._future is not None
+        if self.model.busy != busy:
+            self.model = replace(self.model, busy=busy)
         self.progress.setVisible(busy)
         self.cancel_button.setVisible(busy)
-        self.compare_button.setEnabled(not busy)
-        self.run_button.setEnabled(not busy)
-        self.compare_button.setText("Comparing…" if busy else "Compare")
-        self.run_button.setText("Comparing…" if busy else "Compare")
+        for name in ("Project", "Structures", "Sites"):
+            self.pages.widget(SCIENTIFIC_SECTIONS.index(name)).setEnabled(not busy)
+        self._refresh_workflow_state()
 
     def _cancel_analysis(self) -> None:
         self._cancel_event.set()
@@ -530,10 +631,8 @@ class SourceMixin(QtMixinContext):
         if cancelled:
             self._analysis_cancelled()
         else:
-            self.model = self.model.with_status(
-                "Cancellation requested; the active report calculation has no cancellation hook."
-            )
-            self._set_status("Cancellation requested; waiting for the canonical report to finish")
+            self.model = replace(self.model, busy=True)
+            self._set_status("Cancellation requested; waiting for the current comparison to finish.")
 
     # -------------------------------------------------------------- rendering
 
