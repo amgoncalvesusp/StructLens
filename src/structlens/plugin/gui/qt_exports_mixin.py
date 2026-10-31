@@ -110,6 +110,7 @@ class ExportMixin(QtMixinContext):
     def _capture_panel_transaction_state(self) -> dict[str, Any]:
         """Capture the exact accepted/UI state for canonical-open rollback."""
 
+        residue = self.residue_table.item(self.residue_table.currentRow(), 0)
         return {
             "model": self.model,
             "reference_source": self.reference_loaded_source,
@@ -130,6 +131,9 @@ class ExportMixin(QtMixinContext):
             "report_history": self._report_history,
             "presentation_history": self._presentation_history,
             "selection_controller": self._selection_controller,
+            "residue_filter": self.residue_filter_combo.currentData(),
+            "residue_index": int(residue.text()) if residue is not None else None,
+            "residue_card": self.evidence_card_label.text(),
             "analysis_history": self._analysis_history,
             "site_metrics": self._site_metrics,
             "site_definitions": self._site_definitions,
@@ -159,6 +163,8 @@ class ExportMixin(QtMixinContext):
         self._apply_visualization_state(previous["visualization"])
 
         model = previous["model"]
+        self.model = model
+        self._selection_controller = previous["selection_controller"]
         presentation = previous["report_presentation"]
         if presentation is not None:
             history = previous["presentation_history"]
@@ -169,6 +175,10 @@ class ExportMixin(QtMixinContext):
         else:
             self._invalidate_analysis_views()
 
+        self._set_residue_filter(previous["residue_filter"], previous["residue_index"])
+        if previous["residue_index"] is None:
+            self.residue_table.setCurrentCell(-1, -1)
+        self.evidence_card_label.setText(previous["residue_card"])
         self.model = model
         self._report_request = previous["report_request"]
         self._pending_report_request = previous["pending_request"]

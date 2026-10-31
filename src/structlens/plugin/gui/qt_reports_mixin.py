@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from .presentation import present_report
 from .qt_context import *  # noqa: F401,F403
+from .residues_page import residue_details
 
 
 class ReportMixin(QtMixinContext):
@@ -33,6 +34,9 @@ class ReportMixin(QtMixinContext):
         }
         self.mutation_table.setRowCount(0)
         self.residue_table.setRowCount(0)
+        self.residue_filter_combo.setCurrentIndex(0)
+        self.evidence_card_label.setText("Select a residue to inspect its evidence.")
+        self._set_mutation_counts(None)
         self.structure_result_table.setRowCount(0)
         self.structure_result_summary.setText("Run Compare structures to see results in Results summary.")
         self._render_site_metrics(())
@@ -65,10 +69,10 @@ class ReportMixin(QtMixinContext):
             "refined_rmsd_angstrom": _number(result.refined_rmsd_angstrom),
             "tm_score": _number(result.tm_score),
             "mapped_residue_count": str(result.mapped_residue_count),
-            "mutation_count": str(result.mutation_count),
         }
         for key, value in values.items():
             self.result_labels[key].setText(value)
+        self._set_mutation_counts(result.mutations)
         focus_hint = "double-click a row to focus it" if self.command is not None else "double-click a row to select it"
         self.mutation_summary.setText(f"{result.mutation_count} mutation event(s) · {focus_hint}")
         self.residue_summary.setText(
@@ -206,7 +210,7 @@ class ReportMixin(QtMixinContext):
                 _number(analysis.refined_rmsd_angstrom),
                 _number(analysis.tm_score),
                 str(analysis.mapped_residue_count),
-                str(len(analysis.mutations)),
+                str(analysis.mutation_count),
             )
             for column, value in enumerate(cells):
                 self.results_table.setItem(row, column, self.w.QTableWidgetItem(value))
@@ -312,66 +316,52 @@ class ReportMixin(QtMixinContext):
                 self.residue_table.setItem(row, column, self.w.QTableWidgetItem(value))
 
     def _focus_mutation(self, row: int, _: int) -> None:
-        if self.model.report is not None and self.model.report.analysis is not None:
-            mutations = self.model.report.analysis.mutations
-            if row < len(mutations):
-                self._focus_report_alignment_index(mutations[row].alignment_index)
+        result = self.model.report.analysis if self.model.report is not None else self.model.analysis
+        if result is None or not 0 <= row < len(result.mutations):
             return
-        result = self.model.analysis
-        if result is None or row >= len(result.mutations):
-            return
-        alignment_index = result.mutations[row].alignment_index
-        self._focus_alignment_index(result, alignment_index)
+        event = result.mutations[row]
+        key = event.kind.value if event.kind in self.mutation_kind_buttons else "all"
+        self._open_residue_filter(key, event.alignment_index)
+        if self.model.analysis is not None and self.command is not None:
+            self._focus_alignment_index(self.model.analysis, event.alignment_index)
 
-    def _focus_residue(self, row: int, _: int) -> None:
+    def _focus_residue(self, row: int, _: int, *, focus_pymol: bool = True) -> None:
+        index_cell = self.residue_table.item(row, 0)
+        if index_cell is None:
+            return
+        alignment_index = int(index_cell.text())
         if self.model.report is not None and self.model.report.analysis is not None:
-            correspondences = self.model.report.analysis.correspondences
-            if row < len(correspondences):
-                self._focus_report_alignment_index(correspondences[row].alignment_index)
-            return
-        result = self.model.analysis
-        if result is None or row >= len(result.correspondences):
-            return
-        self._focus_alignment_index(result, result.correspondences[row].alignment_index)
+            self._focus_report_alignment_index(alignment_index)
+        elif self.model.analysis is not None:
+            self._focus_alignment_index(self.model.analysis, alignment_index, focus_pymol=focus_pymol)
 
-    def _focus_alignment_index(self, result: AnalysisResult, alignment_index: int) -> None:
+    def _focus_alignment_index(self, result: AnalysisResult, alignment_index: int, *, focus_pymol: bool = True) -> None:
         item = next((entry for entry in result.correspondences if entry.alignment_index == alignment_index), None)
         if item is None:
             return
-        self.evidence_card_label.setText(
-            f"Reference {_residue_label(item.reference) or 'unavailable'} → Target {_residue_label(item.target) or 'unavailable'}\n"
-            f"Status: {item.status.value} · Cα displacement: {_number(item.ca_displacement_angstrom)} Å · "
-            f"Backbone RMSD: {_number(item.backbone_rmsd_angstrom)} Å · "
-            "Interactions/site evidence: unavailable until the corresponding v0.3 service result is present."
-        )
-        selection = self._pymol.focus_residue(item, result.target_id)
+        self.evidence_card_label.setText(residue_details(item, result.mutations))
+        selection = self._pymol.focus_residue(item, result.target_id) if focus_pymol else None
         if selection:
             self._set_status(f"Focused {selection} in PyMOL")
-        elif self.command is None:
-            self._set_status(f"Residue {alignment_index} selected in the evidence table")
         else:
-            self._set_status(f"Residue {alignment_index} selected; open inside PyMOL to focus it")
+            self._set_status(f"Residue {alignment_index} selected in the evidence table")
 
     def _focus_report_alignment_index(self, alignment_index: int) -> None:
-        if self.model.report is None or self.model.report.analysis is None:
+        report = self.model.report
+        if report is None or report.analysis is None:
             return
         try:
             self._selection_controller = self._selection_controller.select_alignment_index(alignment_index)
             item = self._selection_controller.lookup_correspondence(alignment_index)
-            card = None
-            try:
-                card = self._selection_controller.lookup_evidence_card(alignment_index)
-            except (IndexError, KeyError, ValueError):
-                pass
         except (IndexError, KeyError, ValueError) as exc:
             self._show_error(f"Could not select alignment {alignment_index}: {exc}")
             return
-        quality = card.quality.overall_status if card is not None else "unavailable"
-        self.evidence_card_label.setText(
-            f"Reference {_residue_label(item.reference)} → Target {_residue_label(item.target)}\n"
-            f"Status: {item.status.value} · Cα displacement: {_number(item.ca_displacement_angstrom)} Å · "
-            f"Evidence Card quality: {quality}. Missing values remain unavailable."
-        )
+        try:
+            card = self._selection_controller.lookup_evidence_card(alignment_index)
+        except KeyError:
+            card = None
+        self.model = replace(self.model, selection=self._selection_controller.selection)
+        self.evidence_card_label.setText(residue_details(item, report.analysis.mutations, card))
         self._set_status(f"Residue {alignment_index} selected in the canonical report")
 
     # -------------------------------------------------------------- persistence

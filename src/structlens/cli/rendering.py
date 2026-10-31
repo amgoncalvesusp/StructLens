@@ -88,7 +88,7 @@ def render_compare(report: AnalysisReport) -> str:
             f"Strict Cα RMSD: {_metric(analysis.strict_rmsd_angstrom)} Å",
             f"Refined Cα RMSD: {_metric(analysis.refined_rmsd_angstrom)} Å",
             f"Mapped residues: {analysis.mapped_residue_count}",
-            f"Mutations: {len(analysis.mutations)}",
+            f"Mutations: {analysis.mutation_count}",
             f"Alignment: {analysis.alignment_decision}",
         )
     )

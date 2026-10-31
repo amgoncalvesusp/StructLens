@@ -17,6 +17,8 @@ from typing import Any
 from structlens.core.evidence import Availability, InteractionEvidence, SiteEvidence
 from structlens.core.reports import AnalysisReport
 
+from .qt_pages import residue_label
+
 
 class FrozenMap(Mapping[str, Any]):
     """Small immutable mapping that remains friendly to ``dataclasses.asdict``."""
@@ -192,6 +194,7 @@ def present_report(report: AnalysisReport) -> ReportPresentation:
             "refined_rmsd_angstrom": analysis.refined_rmsd_angstrom if analysis else None,
             "tm_score": analysis.tm_score if analysis else None,
             "mapped_residue_count": analysis.mapped_residue_count if analysis else None,
+            "mutation_count": analysis.mutation_count if analysis else None,
         },
     )
     summary = _section(
@@ -241,24 +244,24 @@ def present_report(report: AnalysisReport) -> ReportPresentation:
         "analysis",
         {"mutations": mutation_payloads},
         mutation_rows,
-        summary=f"{len(mutation_rows)} mutation event(s)",
+        summary=f"{analysis.mutation_count} sequence change(s) · {len(mutation_rows)} position(s)" if analysis else None,
     )
 
     correspondence_payloads = tuple(analysis_payload.get("correspondences", ()))
     correspondence_rows = tuple(
         {
-            "index": item.get("alignment_index"),
-            "reference": item.get("reference"),
-            "target": item.get("target"),
-            "status": item.get("status"),
-            "ca_displacement_angstrom": item.get("ca_displacement_angstrom"),
-            "backbone_rmsd_angstrom": item.get("backbone_rmsd_angstrom"),
-            "sidechain_rmsd_angstrom": item.get("sidechain_rmsd_angstrom"),
-            "all_heavy_atom_rmsd_angstrom": item.get("all_heavy_atom_rmsd_angstrom"),
-            "outlier": item.get("is_outlier"),
-            "key": item.get("is_key_residue"),
+            "index": item.alignment_index,
+            "reference": residue_label(item.reference),
+            "target": residue_label(item.target),
+            "status": item.status,
+            "ca_displacement_angstrom": item.ca_displacement_angstrom,
+            "backbone_rmsd_angstrom": item.backbone_rmsd_angstrom,
+            "sidechain_rmsd_angstrom": item.sidechain_rmsd_angstrom,
+            "all_heavy_atom_rmsd_angstrom": item.all_heavy_atom_rmsd_angstrom,
+            "outlier": item.is_outlier,
+            "key": item.is_key_residue,
         }
-        for item in correspondence_payloads
+        for item in (analysis.correspondences if analysis else ())
     )
     correspondences = _section(
         report,

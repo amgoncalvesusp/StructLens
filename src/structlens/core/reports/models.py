@@ -34,6 +34,7 @@ from structlens.core.models import (
     ResidueId,
     StructuralTransform,
 )
+from structlens.core.models.mutation import count_sequence_changes
 from structlens.core.msa import MultipleSequenceAlignment
 from structlens.core.parsing import InputSelection
 from structlens.core.provenance import MethodProvenance
@@ -213,6 +214,10 @@ class AnalysisSnapshot:
         object.__setattr__(self, "legacy_provenance", _freeze_string_map(self.legacy_provenance, "legacy_provenance"))
         if self.method_provenance is not None and not isinstance(self.method_provenance, MethodProvenance):
             raise TypeError("method_provenance must be MethodProvenance or None")
+
+    @property
+    def mutation_count(self) -> int:
+        return count_sequence_changes(self.mutations)
 
     @classmethod
     def from_result(cls, result: AnalysisResult) -> AnalysisSnapshot:

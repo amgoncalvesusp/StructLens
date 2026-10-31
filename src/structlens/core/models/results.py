@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from structlens.core.models.correspondence import ResidueCorrespondence
-from structlens.core.models.mutation import MutationEvent
+from structlens.core.models.mutation import MutationEvent, count_sequence_changes
 from structlens.core.provenance import MethodProvenance
 
 if TYPE_CHECKING:
@@ -57,7 +57,7 @@ class AnalysisResult:
         have. Those positions stay in ``mutations`` as non-standard evidence.
         """
 
-        return sum(event.kind.value not in {"conserved", "nonstandard"} for event in self.mutations)
+        return count_sequence_changes(self.mutations)
 
     @property
     def insertion_count(self) -> int:

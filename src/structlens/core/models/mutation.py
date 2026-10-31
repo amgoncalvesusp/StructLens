@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -16,6 +17,9 @@ class MutationKind(str, Enum):
     INSERTION = "insertion"
     DELETION = "deletion"
     NONSTANDARD = "nonstandard"
+
+
+SEQUENCE_CHANGE_KINDS = (MutationKind.SUBSTITUTION, MutationKind.INSERTION, MutationKind.DELETION)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,4 +40,8 @@ class MutationEvent:
     physicochemical_class: str | None
 
 
-__all__ = ["MutationEvent", "MutationKind"]
+def count_sequence_changes(events: Iterable[MutationEvent]) -> int:
+    return sum(event.kind in SEQUENCE_CHANGE_KINDS for event in events)
+
+
+__all__ = ["SEQUENCE_CHANGE_KINDS", "MutationEvent", "MutationKind", "count_sequence_changes"]

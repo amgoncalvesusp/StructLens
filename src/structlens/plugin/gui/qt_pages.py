@@ -117,6 +117,7 @@ def stylesheet() -> str:
     QLabel#footerMeta, QLabel#fieldMeta, QLabel#sidebarNote { color: #71869e; }
     QLabel#sidebarNote { font-size: 11px; line-height: 1.3; }
     QLabel#helpText, QLabel#inlineNote { color: #a8bbd0; line-height: 1.35; }
+    QGroupBox#residueEvidence QLabel#helpText { background: #141f30; color: #dbe7f3; }
     QLabel#legend { background: #172438; color: #c3d6ea; border: 1px solid #2e435d; padding: 11px; }
     QLabel#resultDecision { background: #14253a; color: #d9e8f8; border: 1px solid #2a537d; padding: 13px; }
     QLabel#metricValue { color: #f5f8fc; font-size: 17px; font-weight: 700; }

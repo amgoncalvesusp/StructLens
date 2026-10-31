@@ -5,9 +5,10 @@
 from __future__ import annotations
 
 from .qt_context import *  # noqa: F401,F403
+from .qt_residues_mixin import ResiduePageMixin
 
 
-class PageMixin(QtMixinContext):
+class PageMixin(ResiduePageMixin):
     """Cohesive GUI-only pages behavior composed into PanelController."""
 
     def _add_collapsible(self, content: Any, title: str, group: Any) -> Any:
@@ -257,6 +258,7 @@ class PageMixin(QtMixinContext):
             ["Index", "Kind", "Reference", "Target", "Notation", "BLOSUM62", "Grantham", "Class"]
         )
         _configure_table(self.mutation_table, self.w)
+        self.mutation_table.cellClicked.connect(self._open_sequence_change)
         self.mutation_table.cellDoubleClicked.connect(self._focus_mutation)
         content.addWidget(self.mutation_table, 1)
         msa_group = self.w.QGroupBox("Multiple Sequence Alignment", self.widget)
@@ -329,48 +331,6 @@ class PageMixin(QtMixinContext):
 
         self._render_msa_result(alignment)
 
-    # --------------------------------------------------------------- Residues
-
-    def _build_residues_page(self) -> None:
-        _, content = self._add_page(
-            "Residues",
-            (
-                "Inspect matched and unmatched residues; double-click a row to select it."
-                if self.command is None
-                else "Inspect matched and unmatched residues; double-click a row to focus it in PyMOL."
-            ),
-        )
-        self.residue_summary = _label(self.w, "No comparison yet.", "inlineNote")
-        content.addWidget(self.residue_summary)
-        self.residue_table = self.w.QTableWidget(0, 10, self.widget)
-        self.residue_table.setHorizontalHeaderLabels(
-            [
-                "Index",
-                "Reference",
-                "Target",
-                "Status",
-                "Cα Δ (Å)",
-                "Backbone (Å)",
-                "Side-chain (Å)",
-                "Heavy (Å)",
-                "Outlier",
-                "Key",
-            ]
-        )
-        _configure_table(self.residue_table, self.w)
-        self.residue_table.cellDoubleClicked.connect(self._focus_residue)
-        content.addWidget(self.residue_table, 1)
-        evidence_group = self.w.QGroupBox("Residue Evidence Card", self.widget)
-        evidence_layout = self.w.QVBoxLayout(evidence_group)
-        evidence_layout.setContentsMargins(18, 16, 18, 16)
-        self.evidence_card_label = _label(
-            self.w,
-            "Select a correspondence row to inspect sequence, structure, interaction, site, and quality evidence. Missing values remain unavailable.",
-            "helpText",
-        )
-        self.evidence_card_label.setWordWrap(True)
-        evidence_layout.addWidget(self.evidence_card_label)
-        content.addWidget(evidence_group)
 
     # ---------------------------------------------------------- Visualization
 
@@ -713,11 +673,18 @@ class PageMixin(QtMixinContext):
             )
         ):
             metric_layout.addWidget(_label(self.w, title, "fieldLabel"), row, 0)
-            value = _label(self.w, "—", "metricValue")
+            if key == "mutation_count":
+                value = _button(self.w, "—", "secondaryButton")
+                value.setAccessibleName("Show all sequence changes")
+                value.setToolTip("Show substitutions, insertions and deletions in the residue table")
+                value.clicked.connect(lambda: self._open_residue_filter("changes"))
+            else:
+                value = _label(self.w, "—", "metricValue")
             metric_layout.addWidget(value, row, 1)
             metric_layout.addWidget(_label(self.w, unit, "fieldMeta"), row, 2)
             self.result_labels[key] = value
         metric_layout.setColumnStretch(1, 1)
+        self._add_mutation_breakdown(metric_layout)
         content.addWidget(metrics)
         self.report_details_group = self.w.QGroupBox("Detailed report", self.widget)
         details_layout = self.w.QVBoxLayout(self.report_details_group)

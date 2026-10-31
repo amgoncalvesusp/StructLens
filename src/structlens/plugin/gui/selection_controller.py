@@ -63,9 +63,10 @@ class AnalysisSelectionController:
             alignment_index = self._selected_alignment_index()
         _validate_alignment_index(alignment_index)
         correspondence = self._correspondence(alignment_index)
-        for card in report.evidence_cards:
-            if card.residue_id == correspondence.reference:
-                return card
+        if correspondence.reference is not None:
+            for card in report.evidence_cards:
+                if card.residue_id == correspondence.reference:
+                    return card
         raise KeyError(f"evidence card not found for alignment index {alignment_index}")
 
     def _report_or_error(self) -> AnalysisReport:
@@ -86,7 +87,7 @@ class AnalysisSelectionController:
         report = self._report_or_error()
         reference = self.selection.reference_residue
         target = self.selection.target_residue
-        if reference is None:
+        if reference is None and target is None:
             raise ValueError("no correspondence is selected")
         if report.analysis is None:
             raise ValueError("the bound report has no analysis correspondences")

@@ -40,7 +40,7 @@ class PresentationMixin(QtMixinContext):
         self._render_presentation_sites(presentation)
         self._render_quality()
         self._render_pocket_presentation()
-        self.evidence_card_label.setText(_section_text("Evidence Card", presentation.sections.evidence_cards))
+        self.evidence_card_label.setText("Select a residue to inspect its evidence.")
         self._presentation_history = (*self._presentation_history, presentation)
         self._render_presentation_history()
         self._install_presentation_charts(presentation)
@@ -62,7 +62,8 @@ class PresentationMixin(QtMixinContext):
             "mapped_residue_count",
         ):
             self.result_labels[key].setText(_display_metric(key, row.get(key)))
-        self.result_labels["mutation_count"].setText(str(len(presentation.sections.mutations.rows)))
+        analysis = self.model.report.analysis if self.model.report is not None else None
+        self._set_mutation_counts(analysis.mutations if analysis is not None else None)
         self.structure_result_table.setRowCount(1)
         structure_values = (
             reference,
@@ -114,7 +115,9 @@ class PresentationMixin(QtMixinContext):
         )
         for row_index, row in enumerate(rows):
             for column, key in enumerate(keys):
-                self.residue_table.setItem(row_index, column, self.w.QTableWidgetItem(str(row.get(key, ""))))
+                value = row.get(key, "")
+                display = _display_metric(key, value) if key.endswith("_angstrom") else str(value)
+                self.residue_table.setItem(row_index, column, self.w.QTableWidgetItem(display))
         self.residue_summary.setText(presentation.sections.correspondences.summary)
 
     def _render_presentation_sites(self, presentation: ReportPresentation) -> None:
@@ -155,7 +158,7 @@ class PresentationMixin(QtMixinContext):
                 _display_metric("refined_rmsd_angstrom", row.get("refined_rmsd_angstrom")),
                 _display_metric("tm_score", row.get("tm_score")),
                 row.get("mapped_residue_count", "Unavailable"),
-                len(presentation.sections.mutations.rows),
+                row.get("mutation_count", "Unavailable"),
             )
             for column, value in enumerate(values):
                 self.results_table.setItem(row_index, column, self.w.QTableWidgetItem(str(value)))

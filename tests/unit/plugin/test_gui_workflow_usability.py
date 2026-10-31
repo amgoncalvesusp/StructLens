@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6 import QtWidgets  # noqa: E402
+from PySide6 import QtCore, QtTest, QtWidgets  # noqa: E402
 
 from structlens.application.report_service import ReportService  # noqa: E402
 from structlens.plugin.gui.main_panel import SCIENTIFIC_SECTIONS, build_qt_panel  # noqa: E402
@@ -151,3 +151,185 @@ def test_pymol_report_limitation_is_visible_before_clicking(controller):
     assert not controller.pymol_open_button.isEnabled()
     assert not controller.pymol_export_button.isEnabled()
     assert "unavailable" in controller.pymol_report_status.text().lower()
+
+
+def compare_changed_pair(controller, tmp_path, *, reverse=False, two_substitutions=False):
+    # Different author numbers and an insertion code make row-index mixups visible.
+    paths = []
+    for name, start, residues in (
+        ("reference", 101, ("ALA", "VAL", "SER", "LYS", "GLY", "PHE")),
+        ("target", 201, ("ALA", "VAL", "THR", "LYS", "ALA" if two_substitutions else "GLY")),
+    ):
+        lines = [
+            f"ATOM  {i + 1:5d}  CA  {residue:3} A{start + i:4d}{'B' if i == 2 else ' '}"
+            f"   {3.8 * i:8.3f}{float(i % 2):8.3f}{0.0:8.3f}  1.00 15.00           C\n"
+            for i, residue in enumerate(residues)
+        ]
+        path = tmp_path / f"{name}.pdb"
+        path.write_text("".join(lines) + "END\n", encoding="ascii")
+        paths.append(path)
+    reference, target = reversed(paths) if reverse else paths
+    for role, path in (("reference", reference), ("target", target)):
+        assert controller._load_source(role, path)
+    controller.mode_combo.setCurrentText("Sequence")
+    request = controller._report_controller.build_request(
+        reference, target, reference_chain_id="A", target_chain_id="A", analysis_settings=controller._settings()
+    )
+    report = ReportService().analyze(request)
+    controller._populate_report(report, request=request)
+
+
+def visible_residue_rows(control):
+    table = control.residue_table
+    return [i for i in range(table.rowCount()) if not table.isRowHidden(i)]
+
+
+def test_identical_chains_show_no_mutation_and_no_drilldown(controller):
+    load_pair(controller)
+    finish_report(controller)
+    count = controller.result_labels["mutation_count"]
+    assert count.text() == "0"
+    assert not count.isEnabled()
+    assert all(not button.isEnabled() for button in controller.mutation_kind_buttons.values())
+    assert controller.results_table.item(0, 9).text() == "0"
+
+
+def test_summary_click_filters_selects_and_updates_evidence_with_keyboard(controller, tmp_path):
+    compare_changed_pair(controller, tmp_path)
+    controller.widget.resize(1200, 780)
+    controller.widget.show()
+    count = controller.result_labels["mutation_count"]
+    assert count.text() == "2"
+    assert controller.results_table.item(0, 9).text() == "2"
+    count.click()
+    QtWidgets.QApplication.processEvents()
+    assert controller.pages.currentWidget().objectName() == "pageResidues"
+    assert controller.residue_filter_combo.currentData() == "changes"
+    table = controller.residue_table
+    change_rows = visible_residue_rows(controller)
+    assert [table.item(row, 3).text() for row in change_rows] == ["substitution", "deletion"]
+    assert table.currentRow() == change_rows[0]
+    assert "A:103B" in controller.evidence_card_label.text()
+    assert "A:203B" in controller.evidence_card_label.text()
+    evidence_left = controller.evidence_card_label.mapTo(controller.widget, QtCore.QPoint(0, 0)).x()
+    table_right = table.mapTo(controller.widget, QtCore.QPoint(table.width(), 0)).x()
+    assert evidence_left >= table_right
+    controller.widget.resize(800, 600)
+    QtWidgets.QApplication.processEvents()
+    page_scroll = controller.pages.currentWidget().findChild(QtWidgets.QScrollArea)
+    assert page_scroll.horizontalScrollBar().maximum() == 0
+    card = controller.evidence_card_label
+    assert card.height() >= card.heightForWidth(card.width())
+
+    table.setFocus()
+    QtTest.QTest.keyClick(table, QtCore.Qt.Key.Key_Down)
+    assert table.currentRow() == change_rows[1]
+    assert "A:106" in controller.evidence_card_label.text()
+    assert "A:203B" not in controller.evidence_card_label.text()
+
+    combo = controller.residue_filter_combo
+    combo.setCurrentIndex(combo.findData("all"))
+    assert len(visible_residue_rows(controller)) == 6
+    table.scrollToTop()
+    first_cell = table.visualItemRect(table.item(0, 0)).center()
+    QtTest.QTest.mouseClick(table.viewport(), QtCore.Qt.MouseButton.LeftButton, pos=first_cell)
+    assert table.currentRow() == 0
+    assert "A:101" in controller.evidence_card_label.text()
+
+
+@pytest.mark.parametrize(
+    ("reverse", "kind", "position"),
+    [(False, "substitution", "A:103B"), (False, "deletion", "A:106"), (True, "insertion", "A:106")],
+)
+def test_mutation_kind_button_selects_exact_affected_position(controller, tmp_path, reverse, kind, position):
+    compare_changed_pair(controller, tmp_path, reverse=reverse)
+    button = controller.mutation_kind_buttons[kind]
+    assert button.isEnabled()
+    button.click()
+    table = controller.residue_table
+    assert controller.pages.currentWidget().objectName() == "pageResidues"
+    assert controller.residue_filter_combo.currentData() == kind
+    rows = visible_residue_rows(controller)
+    assert len(rows) == 1
+    assert rows == [table.currentRow()]
+    assert table.item(rows[0], 3).text() == kind
+    assert position in controller.evidence_card_label.text()
+    if kind == "insertion":
+        selection = controller._selection_controller
+        assert selection.lookup_correspondence().target.auth_seq_id == "106"
+        with pytest.raises(KeyError):
+            selection.lookup_evidence_card()
+        assert "Reference gap" in controller.evidence_card_label.text()
+        assert "Evidence card unavailable" in controller.evidence_card_label.text()
+
+
+def test_empty_residue_filter_clears_the_selected_report_position(controller, tmp_path):
+    compare_changed_pair(controller, tmp_path)
+    controller.mutation_kind_buttons["deletion"].click()
+    assert controller.model.selection is not None
+    combo = controller.residue_filter_combo
+    combo.setCurrentIndex(combo.findData("insertion"))
+    assert visible_residue_rows(controller) == []
+    assert controller.residue_table.currentRow() == -1
+    assert not controller.residue_table.selectedItems()
+    assert "A:106" not in controller.evidence_card_label.text()
+    assert controller.model.selection is None
+
+
+def test_panel_transaction_restores_selected_change_and_filter(controller, tmp_path):
+    compare_changed_pair(controller, tmp_path)
+    controller.mutation_kind_buttons["deletion"].click()
+    report = controller.model.report
+    original_card = controller.evidence_card_label.text()
+    assert "A:106" in original_card
+    snapshot = controller._capture_panel_transaction_state()
+
+    controller._invalidate_analysis_views()
+    load_pair(controller)
+    finish_report(controller)
+    assert controller.model.report.report_id != report.report_id
+    assert controller.result_labels["mutation_count"].text() == "0"
+
+    controller._restore_panel_transaction_state(snapshot)
+    assert controller.model.report == report
+    assert controller.pages.currentWidget().objectName() == "pageResidues"
+    assert controller.result_labels["mutation_count"].text() == "2"
+    assert controller.residue_filter_combo.currentData() == "deletion"
+    assert visible_residue_rows(controller) == [controller.residue_table.currentRow()]
+    assert controller.evidence_card_label.text() == original_card
+
+
+def test_clicking_a_specific_sequence_change_opens_that_position(controller, tmp_path):
+    compare_changed_pair(controller, tmp_path, two_substitutions=True)
+    controller.widget.resize(1200, 780)
+    controller.widget.show()
+    controller.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sequences"))
+    QtWidgets.QApplication.processEvents()
+    mutations = controller.mutation_table
+    changed = [row for row in range(mutations.rowCount()) if mutations.item(row, 1).text() == "substitution"]
+    assert len(changed) == 2
+    item = mutations.item(changed[1], 0)
+    mutations.scrollToItem(item)
+    QtTest.QTest.mouseClick(
+        mutations.viewport(), QtCore.Qt.MouseButton.LeftButton, pos=mutations.visualItemRect(item).center()
+    )
+    assert controller.pages.currentWidget().objectName() == "pageResidues"
+    assert controller.residue_filter_combo.currentData() == "substitution"
+    rows = visible_residue_rows(controller)
+    assert len(rows) == 2
+    assert controller.residue_table.currentRow() == rows[1]
+    assert "A:105" in controller.evidence_card_label.text()
+    assert "A:205" in controller.evidence_card_label.text()
+
+    controller.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sequences"))
+    conserved = mutations.item(0, 0)
+    mutations.scrollToItem(conserved)
+    QtWidgets.QApplication.processEvents()
+    pos = mutations.visualItemRect(conserved).center()
+    QtTest.QTest.mouseClick(mutations.viewport(), QtCore.Qt.MouseButton.LeftButton, pos=pos)
+    QtTest.QTest.mouseDClick(mutations.viewport(), QtCore.Qt.MouseButton.LeftButton, pos=pos)
+    assert controller.pages.currentWidget().objectName() == "pageResidues"
+    assert controller.residue_filter_combo.currentData() == "all"
+    assert controller.residue_table.currentRow() == 0
+    assert "A:101" in controller.evidence_card_label.text()
+    assert "A:201" in controller.evidence_card_label.text()
