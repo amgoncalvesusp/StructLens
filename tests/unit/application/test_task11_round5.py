@@ -361,11 +361,17 @@ def test_role_binding_rejects_duplicate_snapshots_and_missing_source_paths(tmp_p
         serialize_report(report, source_paths=(tmp_path / "missing.pdb",))
 
 
-def test_bounded_read_rejects_same_inode_rewrite_on_first_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("replacement", [b"mutated!", b"original!", b"orig"])
+def test_bounded_read_rejects_same_inode_rewrite_on_first_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replacement: bytes
+) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"original")
     inode = source.stat().st_ino
     original_read = safe_io.os.read
+    read_identity = safe_io._read_identity
+    # Simulate a filesystem that assigns both writes the same timestamp.
+    monkeypatch.setattr(safe_io, "_read_identity", lambda info: (*read_identity(info)[:-2], 0, 0))
     first = True
 
     def rewrite_same_inode(descriptor: int, size: int) -> bytes:
@@ -374,7 +380,8 @@ def test_bounded_read_rejects_same_inode_rewrite_on_first_read(tmp_path: Path, m
         if first:
             first = False
             with source.open("r+b", buffering=0) as handle:
-                handle.write(b"mutated!")
+                handle.write(replacement)
+                handle.truncate()
                 os.fsync(handle.fileno())
             assert source.stat().st_ino == inode
         return chunk

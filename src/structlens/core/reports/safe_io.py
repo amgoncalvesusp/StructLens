@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import tempfile
 import uuid
 from collections.abc import Iterator
@@ -101,6 +102,20 @@ def _read_identity(info: os.stat_result) -> tuple[int, int, int, int, int, int, 
     )
 
 
+def _verify_read(descriptor: int, chunks: list[bytes], *, label: str) -> None:
+    """Detect content changes even when same-size writes share a filesystem timestamp."""
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    for chunk in chunks:
+        remaining = memoryview(chunk)
+        while remaining:
+            observed = os.read(descriptor, len(remaining))
+            if not observed or observed != remaining[:len(observed)]:
+                raise ValueError(f"{label} changed while reading")
+            remaining = remaining[len(observed):]
+    if os.read(descriptor, 1):
+        raise ValueError(f"{label} changed while reading")
+
+
 def read_bounded_bytes(path: str | Path, *, max_bytes: int, label: str = "file") -> bytes:
     source = Path(path)
     ancestor_state = _ancestor_state(source, label=label)
@@ -109,7 +124,7 @@ def read_bounded_bytes(path: str | Path, *, max_bytes: int, label: str = "file")
         raise FileNotFoundError(source)
     if info.st_size > max_bytes:
         raise SafeReadLimitError(label, max_bytes, info.st_size)
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         descriptor = os.open(source, flags)
     except OSError as exc:
@@ -136,6 +151,7 @@ def read_bounded_bytes(path: str | Path, *, max_bytes: int, label: str = "file")
             total += len(chunk)
         if total > max_bytes:
             raise SafeReadLimitError(label, max_bytes, total)
+        _verify_read(descriptor, chunks, label=label)
         finished = os.fstat(descriptor)
         current = source.lstat()
         if (
@@ -160,6 +176,8 @@ class _StableDirectory:
 
 
 def _lock_windows_directories(parent: Path, *, label: str) -> tuple[int, ...]:
+    if sys.platform != "win32":
+        raise RuntimeError("Windows directory handles require Windows")
     import ctypes
     from ctypes import wintypes
 
@@ -204,6 +222,8 @@ def _lock_windows_directories(parent: Path, *, label: str) -> tuple[int, ...]:
 
 
 def _unlock_windows_directories(handles: tuple[int, ...]) -> None:
+    if sys.platform != "win32":
+        raise RuntimeError("Windows directory handles require Windows")
     import ctypes
     from ctypes import wintypes
 

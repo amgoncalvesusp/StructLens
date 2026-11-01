@@ -32,6 +32,14 @@ def test_release_build_checks_installed_gui_and_checksums():
         assert required in workflow, required
 
 
+def test_linux_jobs_share_a_bounded_signed_package_source():
+    workflow = (ROOT / ".github/workflows/release.yml").read_text()
+    assert workflow.count("bash scripts/install_ci_linux_packages.sh") == 2
+    script = (ROOT / "scripts/install_ci_linux_packages.sh").read_text()
+    for requirement in ("dpkg-query", "https://archive.ubuntu.com/ubuntu", "Signed-By:", "Acquire::https::Timeout"):
+        assert requirement in script
+
+
 def test_backend_fetch_rejects_wrong_hash_without_replacing_existing_asset(monkeypatch, tmp_path):
     from scripts import fetch_backends
 

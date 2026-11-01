@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -36,9 +38,12 @@ def test_ancestor_state_accepts_missing_and_rejects_link_or_identity_change(tmp_
     safe_io._assert_ancestor_state(((missing, None),), label="artifact")
 
     changed = tmp_path / "changed"
+    held = tmp_path / "held"
+    held.mkdir()
     changed.mkdir()
     state = safe_io._ancestor_state(changed / "artifact.bin", label="artifact")
-    changed.rmdir()
+    # The check compares filesystem identities; keep the old directory alive so its inode cannot be recycled.
+    changed.rename(held / "original")
     changed.write_bytes(b"not a directory")
     with pytest.raises(ValueError, match="changed|link"):
         safe_io._assert_ancestor_state(state, label="artifact")
@@ -47,6 +52,49 @@ def test_ancestor_state_accepts_missing_and_rejects_link_or_identity_change(tmp_
     changed.mkdir()
     with pytest.raises(ValueError, match="changed"):
         safe_io._assert_ancestor_state(state, label="artifact")
+
+
+def test_bounded_read_verifies_bytes_across_different_short_read_boundaries(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "short.bin"
+    source.write_bytes(b"abcdefghij")
+    original_read = os.read
+    step = 4
+
+    def short_read(descriptor: int, size: int) -> bytes:
+        nonlocal step
+        chunk = original_read(descriptor, min(step, size))
+        if not chunk:
+            step = 1
+        return chunk
+
+    monkeypatch.setattr(os, "read", short_read)
+    assert read_bounded_bytes(source, max_bytes=10) == b"abcdefghij"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX FIFO semantics")
+def test_regular_source_replaced_by_fifo_is_rejected_without_waiting_for_a_writer(tmp_path: Path) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"original")
+    script = """
+import os
+import sys
+from pathlib import Path
+from structlens.core.reports import safe_io
+source = Path(sys.argv[1])
+original_open = os.open
+def swap_and_open(path, flags):
+    source.unlink()
+    os.mkfifo(source)
+    return original_open(path, flags)
+safe_io.os.open = swap_and_open
+try:
+    safe_io.read_bounded_bytes(source, max_bytes=100)
+except ValueError as error:
+    assert "changed or is a link" in str(error), error
+else:
+    raise AssertionError("accepted a FIFO")
+"""
+    subprocess.run([sys.executable, "-c", script, str(source)], check=True, timeout=10)
 
 
 def test_bounded_read_rejects_open_failure_and_source_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

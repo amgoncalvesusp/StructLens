@@ -33,9 +33,11 @@ def test_structural_runtime_and_test_dependencies_are_declared() -> None:
 
     scipy_spec = _dependency_spec("scipy", runtime)
     hypothesis_spec = _dependency_spec("hypothesis", development)
+    schema_spec = _dependency_spec("jsonschema", development)
 
     assert _minimum_version(scipy_spec, "scipy") >= (1, 10)
     assert _minimum_version(hypothesis_spec, "hypothesis") >= (6, 90)
+    assert _minimum_version(schema_spec, "jsonschema") >= (4,)
 
 
 REPOSITORY = PROJECT_FILE.parent
