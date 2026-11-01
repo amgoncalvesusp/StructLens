@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+- Added residue-level analysis and CSV export for protein-protein and peptide-protein interfaces. See [release notes](RELEASE_NOTES_v0.6.0.md).
+
 ## 0.5.0
 
 - Corrected mutation counts and linked the alignment, residue table, evidence card and charts by the reported correspondence.

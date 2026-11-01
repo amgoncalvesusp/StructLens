@@ -4,7 +4,7 @@ StructLens compares protein sequences and structures by explicit residue corresp
 
 Author: Adriano Marques Gonçalves (UNIARA)
 
-See the [v0.5.0 release notes](RELEASE_NOTES_v0.5.0.md) for the current workflows and the [scientific methods](docs/scientific-methods.md) for measurement definitions.
+See the [v0.6.0 release notes](RELEASE_NOTES_v0.6.0.md) for the current workflows and the [scientific methods](docs/scientific-methods.md) for measurement definitions.
 
 ## Installers and releases
 
