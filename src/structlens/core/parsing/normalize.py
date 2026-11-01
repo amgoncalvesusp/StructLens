@@ -327,6 +327,17 @@ def _normalize_structure(
                 selection, author_chain_id, source_meta.label_chain_id if source_meta else None, entity_id
             )
             kind = _classify_residue(residue_name, group, residue_atoms)
+            if selection.format is StructureFormat.MMCIF and kind is ComponentKind.POLYMER_RESIDUE:
+                # Bio.PDB groups by author numbering; a merged residue cannot be assigned to either label chain.
+                locators = {
+                    (meta.label_chain_id, meta.entity_id)
+                    for atom in residue_atoms
+                    if (meta := atom_metadata.get((selection.model_id, str(atom.serial_number)))) is not None
+                }
+                if len(locators) > 1 and any(_chain_selected(selection, author_chain_id, label, entity)
+                                             for label, entity in locators):
+                    raise StructureParseError(f"Ambiguous mmCIF polymer residue {author_chain_id}:{auth_seq_id} "
+                                              "belongs to multiple label chains or entities.")
             residue_id = ResidueId(
                 structure_id,
                 selection.model_id,

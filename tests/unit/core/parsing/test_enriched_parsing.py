@@ -537,3 +537,22 @@ def test_mmcif_tokenized_preflight_rejects_incomplete_loop(tmp_path: Path) -> No
     path.write_text("data_bad\nloop_\n_atom_site.id\n_atom_site.group_PDB\n1 ATOM 2\n", encoding="utf-8")
     with pytest.raises(StructureParseError, match="incomplete"):
         load_structure_evidence(path)
+
+
+@pytest.mark.parametrize("literal", ["'_database_2.pdbx_DOI'", '"_database_2.pdbx_DOI"', "\n;_database_2.pdbx_DOI\n;"])
+def test_mmcif_metadata_loop_accepts_quoted_data_name(tmp_path: Path, literal: str) -> None:
+    fixture = Path(__file__).parents[3] / "fixtures/parsing/numbering.mmcif"
+    content = fixture.read_text(encoding="utf-8")
+    header, table = content.split("\n", 1)
+    path = tmp_path / "audit.cif"
+    path.write_text(
+        f"{header}\nloop_\n_audit.ordinal\n_audit.item\n1 {literal}\n{table}", encoding="utf-8"
+    )
+    assert load_structure_evidence(path).protein_structure.chains
+
+
+def test_mmcif_metadata_loop_rejects_unquoted_data_name_in_incomplete_row(tmp_path: Path) -> None:
+    path = tmp_path / "broken.cif"
+    path.write_text("data_bad\nloop_\n_audit.ordinal\n_audit.item\n1 _database_2.pdbx_DOI\n")
+    with pytest.raises(StructureParseError, match="incomplete"):
+        load_structure_evidence(path)

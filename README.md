@@ -35,6 +35,8 @@ Start `structlens-gui` from a source installation, or open StructLens from the i
 3. In **Sites & pockets**, pick the ligand instance, set a radius and preview the residue list. Use the contact map or table to inspect a residue. DockLens results require the matching receptor and original pose file.
 4. In **Charts**, select the distance-difference heatmap to inspect a measured pair or export its matrix. In **PyMOL**, save or open a scene for the last verified comparison.
 
+For an interface within one complex, load its coordinates as the reference and open **Project → Subunit interfaces…**. Select two protein or peptide chains in the same model. Inspect the closest atom pair for each contacting residue pair, rank residues by the number of distinct partners on the opposite chain, and export the evidence as CSV. The default contact cutoff is 5.0 Å.
+
 ## Scientific terminology
 
 `Cα displacement` is the distance between one aligned Cα pair. It is not a residue RMSD. Backbone RMSD uses matched N/Cα/C/O atoms; side-chain RMSD uses matched side-chain heavy atoms and valid symmetry permutations. Strict RMSD preserves every eligible pair. Refined RMSD is a separate result with an explicit cutoff and excluded alignment indices; no outlier is silently deleted.

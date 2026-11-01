@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -125,7 +125,7 @@ def preflight_mmcif_bytes(source: bytes, limits: ParseLimits) -> None:
 
     try:
         text = source.decode("utf-8")
-        tokenizer = MMCIF2Dict.__new__(MMCIF2Dict)
+        tokenizer = _PreflightTokenizer.__new__(_PreflightTokenizer)
         tokenizer.quote_chars = ["'", '"']
         tokenizer.whitespace_chars = [" ", "\t"]
         stream = _TokenStream(iter(tokenizer._tokenize(io.StringIO(text))))  # type: ignore[no-untyped-call]
@@ -134,7 +134,7 @@ def preflight_mmcif_bytes(source: bytes, limits: ParseLimits) -> None:
             token = stream.next()
             if token is None:
                 return
-            if token != "loop_":
+            if not isinstance(token, _Directive) or token != "loop_":
                 continue
             keys: list[str] = []
             first_value: str | None = None
@@ -142,7 +142,7 @@ def preflight_mmcif_bytes(source: bytes, limits: ParseLimits) -> None:
                 token = stream.next()
                 if token is None:
                     break
-                if token.startswith("_"):
+                if isinstance(token, _Directive) and token.startswith("_"):
                     keys.append(token)
                     continue
                 first_value = token
@@ -161,9 +161,25 @@ def preflight_mmcif_bytes(source: bytes, limits: ParseLimits) -> None:
         raise StructureParseError(f"malformed mmCIF token stream: {error}") from error
 
 
+class _Directive(str):
+    """Unquoted mmCIF keyword or data name; quoted values are ordinary strings."""
+
+
+class _PreflightTokenizer(MMCIF2Dict):
+    def _splitline(self, line: str) -> Iterator[str]:
+        # BioPython strips quotes; mark syntax before an identical literal loses its provenance.
+        start = 0
+        for token in super()._splitline(line):  # type: ignore[no-untyped-call]
+            while line[start] in self.whitespace_chars:
+                start += 1
+            quoted = line[start] in self.quote_chars
+            yield _Directive(token) if not quoted and _looks_like_directive(token) else token
+            start += len(token) + (2 if quoted else 0)
+
+
 class _TokenStream:
-    def __init__(self, tokens: Any) -> None:
-        self._tokens = iter(tokens)
+    def __init__(self, tokens: Iterator[str]) -> None:
+        self._tokens = tokens
         self._pending: str | None = None
 
     def next(self) -> str | None:
@@ -172,7 +188,7 @@ class _TokenStream:
             self._pending = None
             return token
         try:
-            return str(next(self._tokens))
+            return next(self._tokens)
         except StopIteration:
             return None
 
@@ -205,7 +221,7 @@ def _consume_atom_rows(
                     raise StructureParseError("malformed mmCIF atom_site loop: incomplete row")
                 _record_atom_row(row, index, limits, state)
             return
-        if _is_loop_boundary(token):
+        if isinstance(token, _Directive):
             if row:
                 raise StructureParseError("malformed mmCIF atom_site loop: incomplete row")
             stream.push(token)
@@ -263,7 +279,7 @@ def _consume_ignored_loop(
             if row_size:
                 raise StructureParseError("malformed mmCIF loop: incomplete row")
             return
-        if _is_loop_boundary(token):
+        if isinstance(token, _Directive):
             if row_size:
                 raise StructureParseError("malformed mmCIF loop: incomplete row")
             stream.push(token)
@@ -279,7 +295,7 @@ def _row_value(row: Sequence[str], index: Mapping[str, int], key: str) -> str:
     return "" if value_text in {".", "?"} else value_text
 
 
-def _is_loop_boundary(token: str) -> bool:
+def _looks_like_directive(token: str) -> bool:
     return (
         token == "loop_"
         or token.startswith("data_")

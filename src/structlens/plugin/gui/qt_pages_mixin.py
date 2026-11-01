@@ -24,6 +24,8 @@ class PageMixin(ResiduePageMixin, SiteControlsMixin):
         return toggle
 
     def _build_project_page(self) -> None:
+        from .subunit_interface import open_subunit_interface
+
         _, content = self._add_page(
             "Project",
             "Load a reference and a target structure, then select the chains to compare.",
@@ -131,6 +133,9 @@ class PageMixin(ResiduePageMixin, SiteControlsMixin):
         self.variant_batch_button = _button(self.w, "Compare variants against this reference…", "secondaryButton")
         self.variant_batch_button.clicked.connect(lambda: open_variant_batch(self))
         content.addWidget(self.variant_batch_button)
+        self.interface_button = _button(self.w, "Subunit interfaces…", "secondaryButton")
+        self.interface_button.clicked.connect(lambda: open_subunit_interface(self))
+        content.addWidget(self.interface_button)
 
     # -------------------------------------------------------------- Alignment
 
