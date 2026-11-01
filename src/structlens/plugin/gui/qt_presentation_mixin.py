@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import math
 
+from structlens.application.chart_data import DistanceChartCells
+
 from .qt_context import *  # noqa: F401,F403
 
 
@@ -44,6 +46,7 @@ class PresentationMixin(QtMixinContext):
         self._presentation_history = (*self._presentation_history, presentation)
         self._render_presentation_history()
         self._install_presentation_charts(presentation)
+        self._refresh_ligand_contacts()
 
     def _render_presentation_summary(self, presentation: ReportPresentation) -> None:
         rows = presentation.sections.summary.rows
@@ -51,7 +54,7 @@ class PresentationMixin(QtMixinContext):
         reference = str(row.get("reference", "Unavailable"))
         target = str(row.get("target", "Unavailable"))
         decision = str(row.get("decision", "Unavailable"))
-        self.result_decision.setText(f"<b>{decision}</b><br>Reference: {reference} · Target: {target}")
+        self._set_report_decision(decision, reference, target)
         for key in (
             "sequence_identity",
             "sequence_similarity",
@@ -99,6 +102,8 @@ class PresentationMixin(QtMixinContext):
         self.mutation_summary.setText(presentation.sections.mutations.summary)
 
     def _render_presentation_correspondences(self, presentation: ReportPresentation) -> None:
+        analysis = self.model.report.analysis if self.model.report is not None else None
+        self._set_alignment_rows(analysis.correspondences if analysis else ())
         rows = presentation.sections.correspondences.rows
         self.residue_table.setRowCount(len(rows))
         keys = (
@@ -169,9 +174,13 @@ class PresentationMixin(QtMixinContext):
     def _install_presentation_charts(self, presentation: ReportPresentation) -> None:
         datasets: dict[str, ChartDataset | MatrixDataset] = {}
         chart = presentation.chart_datasets["structural_deviation_profile"]
-        usable = tuple(item for item in chart["points"] if item["position"] is not None)
+        usable = chart["points"]
+        use_alignment_axis = any(item["position"] is None and item["metadata"]["reference_residue"] is not None for item in usable)
         points = tuple(
-            (float(item["position"]), None if item["value"] is None else float(item["value"])) for item in usable
+            (float(item["metadata"]["alignment_index"] + 1) if use_alignment_axis else
+             float(item["position"]) if item["position"] is not None else float("nan"),
+             None if item["value"] is None else float(item["value"]))
+            for item in usable
         )
         labels = tuple(str(item["label"]) for item in usable)
         metadata = tuple(item["metadata"] for item in usable)
@@ -179,13 +188,26 @@ class PresentationMixin(QtMixinContext):
         datasets["Structural deviation profile"] = ChartDataset(
             "structural_deviation_profile",
             "Structural deviation profile",
-            "Reference position",
+            "Alignment position" if use_alignment_axis else "Reference position",
             f"Cα displacement ({unit})",
             unit,
             (ChartSeries("Cα displacement", points, labels, metadata),),
             "Authoritative report values; unavailable positions remain unavailable.",
         )
         msa = presentation.chart_datasets["msa_conservation_profile"]
+        report = self.model.report
+        correspondences = report.analysis.correspondences if report and report.analysis else ()
+        by_residue = {rid: c.alignment_index for c in correspondences for rid in (c.reference, c.target) if rid}
+        msa_columns = report.msa.columns if report and report.msa else ()
+        msa_metadata = []
+        for column in msa_columns:
+            # MSA column numbers can differ from the structural alignment.
+            indices = {by_residue[cell.residue.residue_id] for cell in column.cells
+                       if cell.residue and cell.residue.residue_id in by_residue}
+            index = by_residue.get(column.reference_residue) if column.reference_residue else (
+                next(iter(indices)) if len(indices) == 1 else None
+            )
+            msa_metadata.append({"alignment_index": index})
         msa_points = tuple(
             (float(item["index"] + 1), None if item["value"] is None else float(item["value"]))
             for item in msa["columns"]
@@ -196,9 +218,19 @@ class PresentationMixin(QtMixinContext):
             "Alignment column",
             f"Conservation ({msa['unit']})",
             str(msa["unit"]),
-            (ChartSeries("Conservation", msa_points),),
+            (ChartSeries("Conservation", msa_points, tuple(c.reference_label for c in msa_columns), tuple(msa_metadata)),),
             presentation.sections.msa.summary,
         )
+        if report is not None and report.distance_map is not None:
+            datasets["Distance-difference heatmap"] = MatrixDataset(
+                "distance_difference_heatmap", "Distance-difference heatmap", "Reference residue", "Reference residue",
+                DistanceChartCells(report.distance_map),
+                "Target − reference (Å). Blue indicates shorter distances, red longer distances, and grey missing values. Select a cell to inspect both residues.",
+            )
+        if report is not None and report.analysis is not None:
+            legacy = _legacy_analysis(report)
+            if legacy is not None:
+                datasets["Mutation / conservation matrix"] = mutation_conservation_matrix(legacy)
         self._chart_datasets = datasets
         self._render_selected_chart()
         self._update_chart_export_state(self.chart_combo.currentText())

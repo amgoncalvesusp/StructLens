@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from .qt_context import *  # noqa: F401,F403
 from .qt_residues_mixin import ResiduePageMixin
+from .qt_site_controls import SiteControlsMixin
+from .variant_batch import VariantBatch, open_variant_batch
 
 
-class PageMixin(ResiduePageMixin):
+class PageMixin(ResiduePageMixin, SiteControlsMixin):
     """Cohesive GUI-only pages behavior composed into PanelController."""
 
     def _add_collapsible(self, content: Any, title: str, group: Any) -> Any:
@@ -125,6 +127,10 @@ class PageMixin(ResiduePageMixin):
         actions.addWidget(open_button)
         actions.addStretch(1)
         content.addLayout(actions)
+        self.variant_batch: VariantBatch | None = None
+        self.variant_batch_button = _button(self.w, "Compare variants against this reference…", "secondaryButton")
+        self.variant_batch_button.clicked.connect(lambda: open_variant_batch(self))
+        content.addWidget(self.variant_batch_button)
 
     # -------------------------------------------------------------- Alignment
 
@@ -252,6 +258,7 @@ class PageMixin(ResiduePageMixin):
             "Compare amino-acid sequences, map equivalent positions, and inspect mutations and conservation.",
         )
         self.mutation_summary = _label(self.w, "No comparison yet.", "inlineNote")
+        self._add_alignment_strip(content)
         content.addWidget(self.mutation_summary)
         self.mutation_table = self.w.QTableWidget(0, 8, self.widget)
         self.mutation_table.setHorizontalHeaderLabels(
@@ -339,45 +346,7 @@ class PageMixin(ResiduePageMixin):
             "Sites",
             "Define active sites or ligand-centered regions and compare coverage, geometry, exposure, and interaction fingerprints.",
         )
-        site_group = self.w.QGroupBox("Site definition", self.widget)
-        site_layout = self.w.QGridLayout(site_group)
-        site_layout.setContentsMargins(18, 16, 18, 16)
-        site_layout.setHorizontalSpacing(12)
-        site_layout.setVerticalSpacing(8)
-        self.site_mode_combo = self.w.QComboBox(site_group)
-        for label, value in (
-            ("Key residues", "key_residues"),
-            ("Ligand radius", "ligand_radius"),
-            ("Residue radius", "residue_radius"),
-        ):
-            self.site_mode_combo.addItem(label, value)
-        site_layout.addWidget(_label(self.w, "DEFINITION", "fieldLabel"), 0, 0)
-        site_layout.addWidget(self.site_mode_combo, 1, 0)
-        self.site_residues_edit = self.w.QLineEdit(site_group)
-        self.site_residues_edit.setPlaceholderText("A:70, A:73, A:166")
-        site_layout.addWidget(_label(self.w, "REFERENCE POSITIONS", "fieldLabel"), 0, 1)
-        site_layout.addWidget(self.site_residues_edit, 1, 1)
-        self.site_ligand_edit = self.w.QLineEdit(site_group)
-        self.site_ligand_edit.setPlaceholderText("Ligand ID (for ligand radius)")
-        site_layout.addWidget(_label(self.w, "LIGAND ID", "fieldLabel"), 2, 1)
-        site_layout.addWidget(self.site_ligand_edit, 3, 1)
-        self.site_radius_spin = self.w.QDoubleSpinBox(site_group)
-        self.site_radius_spin.setRange(0.1, 20.0)
-        self.site_radius_spin.setValue(5.0)
-        self.site_radius_spin.setSuffix(" Å")
-        site_layout.addWidget(_label(self.w, "RADIUS", "fieldLabel"), 2, 0)
-        site_layout.addWidget(self.site_radius_spin, 3, 0)
-        self.site_define_button = _button(self.w, "Add site to analysis", "secondaryButton")
-        self.site_define_button.clicked.connect(self._define_site_from_controls)
-        site_layout.addWidget(self.site_define_button, 4, 0, 1, 2)
-        self.site_status_label = _label(
-            self.w,
-            "Add a site to include it in the next comparison, then use Compare structures above.",
-            "inlineNote",
-        )
-        self.site_status_label.setWordWrap(True)
-        site_layout.addWidget(self.site_status_label, 5, 0, 1, 2)
-        content.addWidget(site_group)
+        self._build_site_controls(content)
 
         metrics = self.w.QGroupBox("Site results", self.widget)
         metrics_layout = self.w.QVBoxLayout(metrics)
@@ -411,6 +380,7 @@ class PageMixin(ResiduePageMixin):
         metrics_layout.addWidget(self.site_metrics_table)
         content.addWidget(metrics)
         self._build_pocket_panel(content)
+        self._build_ligand_contacts_panel(content)
 
     # ---------------------------------------------------------- Visualization
 
@@ -449,6 +419,8 @@ class PageMixin(ResiduePageMixin):
         )
         self.chart_explanation.setWordWrap(True)
         chart_layout.addWidget(self.chart_explanation, 1, 1)
+        self.chart_availability_label = _label(self.w, "", "inlineNote")
+        chart_layout.addWidget(self.chart_availability_label, 2, 0, 1, 2)
         chart_layout.setColumnStretch(1, 1)
         self.chart_combo.currentTextChanged.connect(self._update_chart_explanation)
         content.addWidget(chart_group)
@@ -462,6 +434,19 @@ class PageMixin(ResiduePageMixin):
         )
         self.chart_preview_status.setWordWrap(True)
         chart_preview_layout.addWidget(self.chart_preview_status)
+        self.chart_selection_label = _label(self.w, "", "inlineNote")
+        self.chart_selection_label.setTextFormat(getattr(self.c.Qt, "TextFormat", self.c.Qt).PlainText)
+        chart_preview_layout.addWidget(self.chart_selection_label)
+        endpoints = self.w.QHBoxLayout()
+        self.chart_residue_buttons = []
+        for _ in range(2):
+            button = _button(self.w, "", "secondaryButton")
+            button.clicked.connect(lambda _checked=False, b=button: self._open_chart_endpoint(b))
+            endpoints.addWidget(button)
+            self.chart_residue_buttons.append(button)
+            button.hide()
+        endpoints.addStretch()
+        chart_preview_layout.addLayout(endpoints)
         self.chart_preview_layout = self.w.QVBoxLayout()
         self.chart_preview_layout.setContentsMargins(0, 0, 0, 0)
         chart_preview_layout.addLayout(self.chart_preview_layout, 1)
@@ -568,7 +553,7 @@ class PageMixin(ResiduePageMixin):
         self.pymol_export_button = export_bundle = _button(self.w, "Export for PyMOL…", "secondaryButton")
         export_bundle.clicked.connect(self._export_pymol_bundle)
         actions.addWidget(export_bundle, 0, 1)
-        plugin_help = _button(self.w, "Plugin installation instructions", "secondaryButton")
+        plugin_help = _button(self.w, "Legacy bundle plugin instructions", "secondaryButton")
         plugin_help.clicked.connect(
             lambda: self._set_status(
                 "Install StructLens-PyMOL from the amgoncalvesusp/pymol-plugins GitHub release, then open the bundle in PyMOL."

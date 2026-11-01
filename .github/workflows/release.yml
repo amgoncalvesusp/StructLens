@@ -7,12 +7,37 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   PYTHON_VERSION: "3.11"
 
 jobs:
+  quality:
+    name: Test release candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Check version, tests and types
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3
+          python -m pip install -e ".[dev,gui,gui-pyqt5,charts]"
+          version=$(python -c 'from structlens import __version__;print(__version__)')
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" && -s "RELEASE_NOTES_v$version.md" ]]
+          fi
+          python -m ruff check src tests scripts
+          python -m mypy
+          python -m pytest -q -rs --cov=src/structlens --cov-fail-under=80
+
   build-windows:
     name: Build Windows setup
     runs-on: windows-latest
@@ -52,7 +77,7 @@ jobs:
             --collect-data Bio \
             --collect-all freesasa \
             src/structlens/cli/main.py
-          python -m pip install ".[gui]"
+          python -m pip install ".[gui,charts]"
           python -m PyInstaller \
             --clean \
             --noconfirm \
@@ -64,6 +89,8 @@ jobs:
             --collect-data Bio \
             --collect-all freesasa \
             --exclude-module PyQt5 \
+            --hidden-import matplotlib.backends.backend_qtagg \
+            --copy-metadata matplotlib \
             --hidden-import PySide6.QtCore \
             --hidden-import PySide6.QtGui \
             --hidden-import PySide6.QtWidgets \
@@ -78,17 +105,26 @@ jobs:
         shell: pwsh
         run: |
           $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
-          if ("${{ github.ref_name }}" -match '^v') { $version = "${{ github.ref_name }}" -replace '^v', '' }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging/windows/structlens.iss
-          Get-FileHash "release/StructLens-v$version-Windows-x86_64-Setup.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content "release/StructLens-v$version-Windows-x86_64-Setup.exe.sha256"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-FileHash "release/StructLens-v$version-Windows-x86_64-Setup.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)`n" } | Set-Content "release/StructLens-v$version-Windows-x86_64-Setup.exe.sha256" -Encoding ascii -NoNewline
+
+      - name: Smoke installed Windows package
+        shell: pwsh
+        run: |
+          $installer = (Get-Item release/StructLens-v*-Windows-x86_64-Setup.exe).FullName
+          $destination = Join-Path $env:RUNNER_TEMP 'structlens-installed'
+          $setup = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',("/DIR=`"$destination`"")) -WindowStyle Hidden -PassThru -Wait
+          if ($setup.ExitCode -ne 0) { throw "Inno Setup failed: $($setup.ExitCode)" }
+          python scripts/smoke_release_package.py "$destination/structlens.exe" "$destination/gui/StructLens.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: StructLens-windows-setup
-          path: |
-            release/StructLens-v*-Windows-x86_64-Setup.exe*
-            dist/structlens-*.whl
+          if-no-files-found: error
+          path: release/StructLens-v*-Windows-x86_64-Setup.exe*
 
   build-linux:
     name: Build Linux setup
@@ -108,7 +144,7 @@ jobs:
           python -m pip install --upgrade pip build pyinstaller "freesasa>=2.2.1"
           python scripts/fetch_backends.py --platform Linux
           sudo apt-get update
-          sudo apt-get install -y g++ dpkg fuse3
+          sudo apt-get install -y g++ dpkg fuse3 libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3
           git clone --depth 1 https://github.com/pylelab/USalign.git build/usalign-src
           git -C build/usalign-src fetch --depth 1 origin fa4376bd99fa17a123d05d7ea47cf6574c80d64f
           git -C build/usalign-src checkout fa4376bd99fa17a123d05d7ea47cf6574c80d64f
@@ -130,7 +166,7 @@ jobs:
             --collect-data Bio \
             --collect-all freesasa \
             src/structlens/cli/main.py
-          python -m pip install ".[gui]"
+          python -m pip install ".[gui,charts]"
           python -m PyInstaller \
             --clean \
             --noconfirm \
@@ -142,6 +178,8 @@ jobs:
             --collect-data Bio \
             --collect-all freesasa \
             --exclude-module PyQt5 \
+            --hidden-import matplotlib.backends.backend_qtagg \
+            --copy-metadata matplotlib \
             --hidden-import PySide6.QtCore \
             --hidden-import PySide6.QtGui \
             --hidden-import PySide6.QtWidgets \
@@ -152,25 +190,37 @@ jobs:
         shell: bash
         run: |
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          if [[ "$GITHUB_REF_NAME" == v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
           bash packaging/linux/build_packages.sh "$version" "$PWD/dist"
+
+      - name: Smoke Debian and AppImage packages
+        run: |
+          dpkg-deb -x release/structlens_*_amd64.deb "$RUNNER_TEMP/deb"
+          python scripts/smoke_release_package.py "$RUNNER_TEMP/deb/opt/structlens/structlens" "$RUNNER_TEMP/deb/opt/structlens/StructLens"
+          image=$(realpath release/StructLens-v*-Linux-x86_64.AppImage)
+          (cd "$RUNNER_TEMP" && "$image" --appimage-extract >/dev/null)
+          python scripts/smoke_release_package.py "$RUNNER_TEMP/squashfs-root/opt/structlens/structlens" "$RUNNER_TEMP/squashfs-root/AppRun"
 
       - name: Upload Linux setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: StructLens-linux-setup
+          if-no-files-found: error
           path: |
             release/structlens_*.deb*
             release/StructLens-v*-Linux-x86_64.AppImage*
 
   release:
+    permissions:
+      contents: write
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/')
     needs:
+      - quality
       - build-windows
       - build-linux
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Download setup artifacts
         uses: actions/download-artifact@v4
         with:
@@ -181,11 +231,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p release-assets
-          find release -type f \( -name 'StructLens-v*-Windows-x86_64-Setup.exe' -o -name 'StructLens-v*-Windows-x86_64-Setup.exe.sha256' -o -name 'structlens_*.deb' -o -name 'structlens_*.deb.sha256' -o -name 'StructLens-v*-Linux-x86_64.AppImage' -o -name 'StructLens-v*-Linux-x86_64.AppImage.sha256' \) -exec cp {} release-assets/ \;
-          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --clobber
-            gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "StructLens ${GITHUB_REF_NAME}"
+          version="${GITHUB_REF_NAME#v}"
+          names=("StructLens-v${version}-Windows-x86_64-Setup.exe" "structlens_${version}_amd64.deb" "StructLens-v${version}-Linux-x86_64.AppImage")
+          notes="$GITHUB_WORKSPACE/RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          test -s "$notes"
+          cd release
+          [[ "$(find . -type f | wc -l)" -eq 6 ]]
+          for name in "${names[@]}"; do
+            test -s "$name" && test -s "$name.sha256"
+            [[ "$(tr -d '\r' < "$name.sha256")" == "$(sha256sum "$name")" ]]
+            sha256sum --check --strict "$name.sha256"
+          done
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/structlens-existing-release"; then
+            [[ "$(cat "$RUNNER_TEMP/structlens-existing-release")" == true ]]
+            gh release upload "$GITHUB_REF_NAME" ./* --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "StructLens ${GITHUB_REF_NAME}" --generate-notes
+            gh release create "$GITHUB_REF_NAME" ./* --draft --verify-tag --title "StructLens $GITHUB_REF_NAME" --notes-file "$notes"
           fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest --notes-file "$notes"

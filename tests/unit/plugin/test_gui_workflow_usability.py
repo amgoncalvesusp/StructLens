@@ -145,12 +145,12 @@ def test_site_pending_and_busy_state_preserve_completed_report(controller):
     assert controller.header_status.text() == "Changes pending"
 
 
-def test_pymol_report_limitation_is_visible_before_clicking(controller):
+def test_fitted_report_enables_native_pymol_scene(controller):
     load_pair(controller)
     finish_report(controller)
-    assert not controller.pymol_open_button.isEnabled()
-    assert not controller.pymol_export_button.isEnabled()
-    assert "unavailable" in controller.pymol_report_status.text().lower()
+    assert controller.pymol_open_button.isEnabled()
+    assert controller.pymol_export_button.isEnabled()
+    assert ".pml" in controller.pymol_report_status.text().lower()
 
 
 def compare_changed_pair(controller, tmp_path, *, reverse=False, two_substitutions=False):
@@ -182,6 +182,62 @@ def compare_changed_pair(controller, tmp_path, *, reverse=False, two_substitutio
 def visible_residue_rows(control):
     table = control.residue_table
     return [i for i in range(table.rowCount()) if not table.isRowHidden(i)]
+
+
+def test_author_search_selects_exact_model_position_and_keeps_gap(controller, tmp_path):
+    compare_changed_pair(controller, tmp_path)
+    controller.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Residues"))
+    controller.residue_search.setText("A:203B")
+    assert visible_residue_rows(controller) == [2]
+    assert "A:103B SER" in controller.evidence_card_label.text()
+    controller.residue_search.setText("A:203")
+    assert not visible_residue_rows(controller)
+    controller.residue_search.setText("A:106")
+    assert visible_residue_rows(controller) == [5]
+    assert "Target gap" in controller.evidence_card_label.text()
+    controller._open_residue_filter("substitution", 2)
+    assert not controller.residue_search.text()
+    assert visible_residue_rows(controller) == [2]
+
+
+def test_alignment_click_uses_report_correspondence_and_tracks_focus(controller, tmp_path):
+    compare_changed_pair(controller, tmp_path)
+    strip = controller.alignment_strip
+    assert strip.item(0, 2).text() == "S" and strip.item(1, 2).text() == "T"
+    assert strip.item(1, 5).text() == "–"
+    controller.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sequences"))
+    strip.cellClicked.emit(1, 5)
+    assert controller.pages.currentWidget().objectName() == "pageResidues"
+    assert controller.residue_table.currentRow() == 5
+    assert "Target gap" in controller.evidence_card_label.text()
+    controller._open_residue_filter("substitution", 2)
+    assert strip.currentColumn() == 2
+
+
+def test_alignment_tooltips_quote_deposited_identifiers(controller, tmp_path):
+    from dataclasses import replace
+
+    compare_changed_pair(controller, tmp_path)
+    row = controller.model.report.analysis.correspondences[0]
+    unusual_chain = replace(row.reference, chain_id="<img src='file:///example.png'>")
+    controller._set_alignment_rows((replace(row, reference=unusual_chain),))
+    tooltip = controller.alignment_strip.item(0, 0).toolTip()
+    assert "<img" not in tooltip
+    assert "&lt;img" in tooltip
+
+
+def test_alignment_window_only_marks_the_selected_report_column(controller, tmp_path):
+    from dataclasses import replace
+
+    compare_changed_pair(controller, tmp_path)
+    row = controller.model.report.analysis.correspondences[0]
+    controller._set_alignment_rows(tuple(replace(row, alignment_index=i) for i in range(30)))
+    controller._sync_alignment_selection(5)
+    assert controller.alignment_strip.currentColumn() == 5
+    controller.alignment_window.setValue(2)
+    assert not controller.alignment_strip.selectedItems()
+    controller.alignment_window.setValue(1)
+    assert controller.alignment_strip.currentColumn() == 5
 
 
 def test_identical_chains_show_no_mutation_and_no_drilldown(controller):

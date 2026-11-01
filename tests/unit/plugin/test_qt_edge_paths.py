@@ -506,17 +506,25 @@ def test_chart_export_cancel_keeps_authoritative_dataset_untouched(controller, m
     assert controller._chart_datasets["MSA conservation profile"] is dataset
 
 
-def test_chart_export_reports_unavailable_profile_without_opening_dialog(controller, monkeypatch) -> None:
-    controller.model = controller.model.with_report(_minimal_report())
+@pytest.mark.parametrize("verified", [True, False])
+def test_chart_export_reports_unavailable_profile_without_opening_dialog(controller, monkeypatch, tmp_path, verified) -> None:
+    request, report = rich_report(tmp_path)
+    controller._populate_report(report, request=request if verified else None)
     controller.chart_combo.setCurrentText("Pairwise similarity heatmap")
     errors: list[str] = []
     monkeypatch.setattr(controller, "_show_error", errors.append)
+    monkeypatch.setattr(
+        controller.w.QFileDialog, "getSaveFileName", lambda *_: pytest.fail("Unavailable charts must not open a dialog")
+    )
 
     controller._export_chart_xlsx()
 
-    assert errors == [
-        "The Pairwise similarity heatmap dataset is unavailable. Run its scientific service before exporting."
-    ]
+    assert len(errors) == 1
+    if verified:
+        assert "Pairwise similarity heatmap dataset is unavailable" in errors[0]
+        assert "matrix of comparisons across multiple targets" in errors[0]
+    else:
+        assert "verified source binding" in errors[0]
 
 
 def test_visualization_requires_report_and_pymol_objects(controller, monkeypatch) -> None:

@@ -287,7 +287,7 @@ class ReportService:
             diagnostics,
             lambda: self._interaction_evidence(reference_chain, target_chain, result.correspondences, request),
         )
-        sites, site_state = self._site_section(site_definitions, diagnostics, reference, target, result)
+        sites, site_state, resolved_sites = self._site_section(site_definitions, diagnostics, reference, target, result)
         distance_map, map_state = self._run_section(
             "distance_map", diagnostics, lambda: _distance_map(reference_chain, target_chain, result.correspondences)
         )
@@ -314,6 +314,7 @@ class ReportService:
                 input_quality,
                 interaction_state,
                 site_state,
+                resolved=resolved_sites,
             ),
         )
         return AnalysisReport(
@@ -451,15 +452,16 @@ class ReportService:
         reference: ParsedStructure,
         target: ParsedStructure,
         result: AnalysisResult,
-    ) -> tuple[tuple[SiteMetrics, ...], Availability]:
+    ) -> tuple[tuple[SiteMetrics, ...], Availability, dict[SiteDefinition, tuple[ResidueRecord, ...]]]:
         if not definitions:
-            return (), Availability.NOT_APPLICABLE
+            return (), Availability.NOT_APPLICABLE, {}
         ligand_atoms = _reference_ligand_atoms(reference)
         reference_records = _single_chain(reference).residue_records
-        resolved: list[SiteDefinition] = []
+        resolved: dict[SiteDefinition, tuple[ResidueRecord, ...]] = {}
         for definition in definitions:
-            if define_site(definition, reference_records, ligand_atoms=ligand_atoms):
-                resolved.append(definition)
+            members = define_site(definition, reference_records, ligand_atoms=ligand_atoms)
+            if members:
+                resolved[definition] = members
             else:
                 diagnostics.append(
                     Diagnostic(
@@ -470,11 +472,11 @@ class ReportService:
                     )
                 )
         if not resolved:
-            return (), Availability.NOT_DETECTED
+            return (), Availability.NOT_DETECTED, {}
         values, state = self._run_section(
-            "sites", diagnostics, lambda: _site_metrics(tuple(resolved), reference, target, result)
+            "sites", diagnostics, lambda: _site_metrics(tuple(resolved), reference, target, result, resolved=resolved)
         )
-        return values or (), state
+        return values or (), state, resolved
 
     def _vector_section(
         self,

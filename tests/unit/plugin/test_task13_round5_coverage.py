@@ -232,12 +232,22 @@ def test_canonical_open_and_chart_exports_fail_before_external_side_effects(
         "structlens.plugin.gui.qt_exports_mixin.write_pymol_bundle",
         lambda *_args, **_kwargs: writers.append(True),
     )
+    monkeypatch.setattr(
+        "structlens.plugin.gui.qt_pymol_scene.PyMOLLauncher.locate",
+        lambda _self: (_ for _ in ()).throw(OSError("missing PyMOL executable")),
+    )
     controller._open_in_pymol()
     assert writers == []
-    assert "opening this report format in pymol is unavailable" in errors[-1].lower()
+    assert "missing pymol executable" in errors[-1].lower()
 
     controller.model = StructLensPanelModel()
+    monkeypatch.setattr(
+        controller.w.QFileDialog, "getSaveFileName",
+        lambda *_: pytest.fail("A stale chart must never open an export dialog"),
+    )
     controller._export_chart_xlsx()
+    assert "comparison" in errors[-1].lower()
+    controller._export_chart_image("png", 300)
     assert "comparison" in errors[-1].lower()
 
 
@@ -282,7 +292,7 @@ def test_site_definition_ligand_and_residue_radius_require_their_inputs(controll
     errors: list[str] = []
     monkeypatch.setattr(controller, "_show_error", errors.append)
     controller.site_mode_combo.setCurrentText("Ligand radius")
-    controller.site_ligand_edit.clear()
+    controller.site_ligand_combo.setCurrentIndex(-1)
     controller._define_site_from_controls()
     assert "ligand identifier" in errors[-1]
     controller.site_mode_combo.setCurrentText("Residue radius")

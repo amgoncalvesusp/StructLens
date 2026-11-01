@@ -14,12 +14,12 @@ cp -a "$PYINSTALLER_DIST/StructLens/." "$APPDIR/opt/structlens/"
 cp -a "$PYINSTALLER_DIST/structlens" "$APPDIR/opt/structlens/structlens"
 cp -a "$ROOT/licenses" "$APPDIR/opt/structlens/"
 cp "$ROOT/THIRD_PARTY_NOTICES.txt" "$APPDIR/opt/structlens/"
-cp "$ROOT/RELEASE_NOTES_v0.4.1.md" "$APPDIR/opt/structlens/"
+cp "$ROOT/RELEASE_NOTES_v${VERSION}.md" "$APPDIR/opt/structlens/"
 cp -a "$PYINSTALLER_DIST/StructLens/." "$DEBROOT/opt/structlens/"
 cp -a "$PYINSTALLER_DIST/structlens" "$DEBROOT/opt/structlens/structlens"
 cp -a "$ROOT/licenses" "$DEBROOT/opt/structlens/"
 cp "$ROOT/THIRD_PARTY_NOTICES.txt" "$DEBROOT/opt/structlens/"
-cp "$ROOT/RELEASE_NOTES_v0.4.1.md" "$DEBROOT/opt/structlens/"
+cp "$ROOT/RELEASE_NOTES_v${VERSION}.md" "$DEBROOT/opt/structlens/"
 cp "$ROOT/src/structlens/plugin/assets/structlens_icon.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/structlens.png"
 cp "$ROOT/src/structlens/plugin/assets/structlens_icon.png" "$APPDIR/structlens.png"
 cp "$ROOT/src/structlens/plugin/assets/structlens_icon.png" "$DEBROOT/usr/share/icons/hicolor/256x256/apps/structlens.png"
@@ -54,7 +54,7 @@ Section: science
 Priority: optional
 Architecture: amd64
 Maintainer: Adriano Marques Gonçalves (UNIARA)
-Depends: libc6
+Depends: libc6, libegl1, libgl1, libdbus-1-3, libxkbcommon-x11-0, libxcb-cursor0
 Description: Integrated protein sequence and structure comparison
  StructLens provides sequence/structure comparison and reproducible evidence exports.
 EOF
@@ -65,13 +65,13 @@ EOF
 chmod +x "$DEBROOT/usr/bin/structlens"
 mkdir -p "$ROOT/release"
 dpkg-deb --build --root-owner-group "$DEBROOT" "$ROOT/release/structlens_${VERSION}_amd64.deb" >/dev/null
-if ! command -v appimagetool >/dev/null 2>&1; then
-  curl -fsSL -o "$ROOT/build/appimagetool.AppImage" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
-  chmod +x "$ROOT/build/appimagetool.AppImage"
-  APPIMAGETOOL="$ROOT/build/appimagetool.AppImage"
-else
-  APPIMAGETOOL="$(command -v appimagetool)"
-fi
-ARCH=x86_64 "$APPIMAGETOOL" "$APPDIR" "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage"
+APPIMAGETOOL="$ROOT/build/appimagetool.AppImage"
+curl --fail --location --retry 3 -o "$APPIMAGETOOL" "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+echo 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool.AppImage' | (cd "$ROOT/build" && sha256sum --check --strict)
+chmod +x "$APPIMAGETOOL"
+RUNTIME="$ROOT/build/runtime-x86_64"
+curl --fail --location --retry 3 -o "$RUNTIME" "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64"
+echo '2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  runtime-x86_64' | (cd "$ROOT/build" && sha256sum --check --strict)
+ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGETOOL" --runtime-file "$RUNTIME" "$APPDIR" "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage"
 (cd "$ROOT/release" && sha256sum "structlens_${VERSION}_amd64.deb") > "$ROOT/release/structlens_${VERSION}_amd64.deb.sha256"
 (cd "$ROOT/release" && sha256sum "StructLens-v${VERSION}-Linux-x86_64.AppImage") > "$ROOT/release/StructLens-v${VERSION}-Linux-x86_64.AppImage.sha256"

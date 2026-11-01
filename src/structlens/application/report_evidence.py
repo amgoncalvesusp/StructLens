@@ -11,7 +11,7 @@ from structlens.application.report_geometry import (
     reference_position,
 )
 from structlens.application.report_input import single_chain
-from structlens.application.site_service import calculate_site_metrics, define_site
+from structlens.application.site_service import define_site, measure_resolved_site
 from structlens.core.evidence import (
     Availability,
     DiagnosticSeverity,
@@ -57,6 +57,9 @@ def evidence_cards(
     quality: InputQualityBundle,
     interaction_state: Availability,
     site_state: Availability,
+    *,
+    resolved: Mapping[SiteDefinition, Sequence[ResidueRecord]] | None = None,
+    ligand_atoms: Mapping[str, Sequence[AtomRecord]] | None = None,
 ) -> tuple[EvidenceCard, ...]:
     """Assemble one card per mapped reference residue with explicit availability."""
 
@@ -79,6 +82,18 @@ def evidence_cards(
         for diagnostic in quality.reference.diagnostics + quality.target.diagnostics
         if diagnostic.severity is DiagnosticSeverity.WARNING
     )
+    metrics_by_site = {metric.site_id: metric for metric in typed_sites}
+    if resolved is None:
+        resolved = {
+            definition: define_site(definition, reference.residue_records, ligand_atoms=ligand_atoms)
+            for definition in definitions
+        }
+    sites_by_member: dict[ResidueId, list[SiteMetrics]] = {}
+    for definition, members in resolved.items():
+        metric = metrics_by_site.get(definition.site_id)
+        if metric is not None:
+            for member in members:
+                sites_by_member.setdefault(member.residue_id, []).append(metric)
     cards: list[EvidenceCard] = []
     for item in result.correspondences:
         if item.reference is None:
@@ -102,7 +117,7 @@ def evidence_cards(
         )
         position = reference_position(item.reference)
         interaction_evidence = interactions_for_position(typed_interactions, position, position_for)
-        site_values = sites_for_residue(item.reference, typed_sites, definitions, reference.residue_records)
+        site_values = tuple(sites_by_member.get(item.reference, ()))
         structure_available = item.target is not None and item.ca_displacement_angstrom is not None
         available = ["sequence"]
         unavailable: list[str] = []
@@ -175,11 +190,16 @@ def sites_for_residue(
     metrics: Sequence[SiteMetrics],
     definitions: Sequence[SiteDefinition],
     reference_records: Sequence[ResidueRecord],
+    *,
+    ligand_atoms: Mapping[str, Sequence[AtomRecord]] | None = None,
 ) -> tuple[SiteMetrics, ...]:
     relevant = {
         definition.site_id
         for definition in definitions
-        if residue in {record.residue_id for record in define_site(definition, reference_records)}
+        if any(
+            record.residue_id == residue
+            for record in define_site(definition, reference_records, ligand_atoms=ligand_atoms)
+        )
     }
     return tuple(metric for metric in metrics if metric.site_id in relevant)
 
@@ -189,10 +209,11 @@ def site_metrics(
     reference: ParsedStructure,
     target: ParsedStructure,
     result: AnalysisResult,
+    *,
+    resolved: Mapping[SiteDefinition, Sequence[ResidueRecord]] | None = None,
 ) -> tuple[SiteMetrics, ...]:
     """Calculate resolved site metrics using the fitted target-to-reference frame."""
 
-    reference_chain = single_chain(reference)
     target_chain = single_chain(target)
     correspondence = {
         item.reference: item.target
@@ -200,18 +221,20 @@ def site_metrics(
         if item.reference is not None and item.target is not None
     }
     matrix = homogeneous_transform(result.transform)
-    ligand_atoms = reference_ligand_atoms(reference)
+    if resolved is None:
+        records = single_chain(reference).residue_records
+        atoms = reference_ligand_atoms(reference)
+        resolved = {definition: define_site(definition, records, ligand_atoms=atoms) for definition in definitions}
     return tuple(
-        calculate_site_metrics(
+        measure_resolved_site(
             definition,
-            reference_chain.residue_records,
+            members,
             target_chain.residue_records,
             correspondence,
             target_structure_id=target_chain.structure_id,
             target_transform=matrix,
-            ligand_atoms=ligand_atoms,
         )
-        for definition in definitions
+        for definition, members in resolved.items()
     )
 
 

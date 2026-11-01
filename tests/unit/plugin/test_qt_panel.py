@@ -58,13 +58,13 @@ def test_chart_exports_follow_the_selected_profile(application) -> None:
     controller = panel._structlens_controller
 
     assert controller.chart_export_buttons
-    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+    assert all(not button.isEnabled() for button in controller.chart_export_buttons)
 
     controller.chart_combo.setCurrentText("Mutation / conservation matrix")
     assert all(not button.isEnabled() for button in controller.chart_export_buttons)
 
     controller.chart_combo.setCurrentText("Structural deviation profile")
-    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+    assert all(not button.isEnabled() for button in controller.chart_export_buttons)
 
     controller.close()
     panel.deleteLater()
@@ -261,7 +261,7 @@ def test_msa_and_chart_results_land_on_their_scientific_tabs(application) -> Non
     panel.deleteLater()
 
 
-def test_msa_chart_dataset_enables_chart_exports(application) -> None:
+def test_single_sequence_without_conservation_measurements_disables_chart_exports(application) -> None:
     panel = build_qt_panel()
     controller = panel._structlens_controller
     alignment = align_sequences(
@@ -285,7 +285,7 @@ def test_msa_chart_dataset_enables_chart_exports(application) -> None:
     )
     controller.set_msa_result(alignment)
     controller.chart_combo.setCurrentText("MSA conservation profile")
-    assert all(button.isEnabled() for button in controller.chart_export_buttons)
+    assert all(not button.isEnabled() for button in controller.chart_export_buttons)
     controller.close()
     panel.deleteLater()
 

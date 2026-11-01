@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+from structlens.application.chart_plot import draw_chart
+
+from .qt_chart_navigation import ChartNavigationMixin
 from .qt_context import *  # noqa: F401,F403
 
 
-class VisualizationMixin(QtMixinContext):
+class VisualizationMixin(ChartNavigationMixin):
     """Cohesive GUI-only visualization behavior composed into PanelController."""
 
     def _state_from_controls(self) -> VisualizationState:
@@ -69,13 +72,17 @@ class VisualizationMixin(QtMixinContext):
         if verified is not None:
             apply_report = getattr(self._pymol, "apply_report", None)
             if apply_report is not None:
-                apply_report(
-                    verified.report,
-                    snapshots=verified.snapshots,
-                    state=state,
-                    reference_object=self.reference_object_name,
-                    target_object=self.target_object_name,
-                )
+                try:
+                    apply_report(
+                        verified.report,
+                        snapshots=verified.snapshots,
+                        state=state,
+                        reference_object=self.reference_object_name,
+                        target_object=self.target_object_name,
+                    )
+                except Exception as exc:
+                    self._show_error(f"Could not apply canonical PyMOL view: {exc}")
+                    return
             else:
                 # Compatibility for pre-report adapter doubles/integrations.
                 # The production PyMOLAdapter always takes the report path.
@@ -164,16 +171,11 @@ class VisualizationMixin(QtMixinContext):
 
     def _render_selected_chart(self) -> None:
         label = self.chart_combo.currentText()
-        result = self.model.analysis
-        dataset: ChartDataset | MatrixDataset | None = None
-        if label == "Structural deviation profile" and result is not None:
-            dataset = structural_deviation_profile(result)
-        elif label == "MSA conservation profile":
-            dataset = self._chart_datasets.get(label) or self._msa_chart_dataset
-        else:
-            dataset = self._chart_datasets.get(label)
+        self._clear_chart_selection()
+        dataset = self._available_chart(label)
         if dataset is None:
-            self.chart_preview_status.setText("Chart unavailable. Run the corresponding scientific service first.")
+            self.chart_preview_status.setText(self._chart_unavailable_reason(label))
+            self._chart_canvas = None
             self._clear_chart_layout(self.chart_preview_layout)
             return
         self._render_dataset(
@@ -200,49 +202,21 @@ class VisualizationMixin(QtMixinContext):
         chart_classes = load_chart_classes()
         if chart_classes is None:
             setattr(self, canvas_attribute, None)
-            status.setText(f"{unavailable_message} Values remain available for XLSX/CSV export.")
+            status.setText(f"{unavailable_message} Values remain available for XLSX export.")
             return
         FigureCanvasQTAgg, Figure = chart_classes
         figure = Figure(figsize=(7.0, 2.8), dpi=100, tight_layout=True)
         axes = figure.add_subplot(111)
-        if isinstance(dataset, ChartDataset):
-            y_label = _unit_label(dataset.y_label, dataset.unit)
-            for series in dataset.series:
-                points = [(x, y) for x, y in series.points if y is not None]
-                if points:
-                    axes.plot(
-                        [point[0] for point in points],
-                        [point[1] for point in points],
-                        marker="o",
-                        linewidth=1.4,
-                        label=series.name,
-                    )
-            axes.set_xlabel(dataset.x_label)
-            axes.set_ylabel(y_label)
-            axes.set_title(dataset.title)
-            if len(dataset.series) > 1:
-                axes.legend()
-        else:
-            rows = list(dict.fromkeys(cell.row for cell in dataset.cells))
-            columns = list(dict.fromkeys(cell.column for cell in dataset.cells))
-            values = {(cell.row, cell.column): cell.value for cell in dataset.cells}
-            image: list[list[float]] = []
-            for row in rows:
-                image_row: list[float] = []
-                for column in columns:
-                    value = values.get((row, column))
-                    image_row.append(float("nan") if value is None else float(value))
-                image.append(image_row)
-            if image and columns:
-                axes.imshow(image, **_matrix_image_kwargs(dataset, values.values()))
-                axes.set_xticks(range(len(columns)), columns, rotation=45, ha="right")
-                axes.set_yticks(range(len(rows)), rows)
-            axes.set_xlabel(dataset.column_label)
-            axes.set_ylabel(dataset.row_label)
-            axes.set_title(dataset.title)
+        draw_chart(axes, dataset)
         canvas = FigureCanvasQTAgg(figure)
+        if canvas_attribute == "_chart_canvas":
+            self._wire_chart_selection(canvas, axes, dataset)
         layout.addWidget(canvas)
         setattr(self, canvas_attribute, canvas)
+        if canvas_attribute == "_chart_canvas":
+            selected = self.residue_table.item(self.residue_table.currentRow(), 0)
+            if selected is not None:
+                self._highlight_chart_residue(int(selected.text()))
         unit = dataset.unit if isinstance(dataset, ChartDataset) else None
         unit_text = f" · unit={unit}" if unit else ""
         status.setText(f"{dataset.title}{unit_text} · {dataset.interpretation}")
@@ -266,13 +240,13 @@ class VisualizationMixin(QtMixinContext):
 
     def _update_chart_explanation(self, label: str) -> None:
         explanations = {
-            "Structural deviation profile": "Reference position on X; selectable Cα displacement, backbone RMSD, side-chain RMSD, or local RMSD on Y (Å).",
+            "Structural deviation profile": "Plot Cα displacement (Å) by residue position. Select a measured point to inspect its residue.",
             "Mutation / conservation matrix": "Rows are structures and columns are reference-aligned positions; cell text preserves mutation identity.",
             "Pairwise similarity heatmap": "Mirrors one stored value per pair for sequence identity, TM-score, RMSD, or key-site RMSD.",
             "Sequence–structure relationship": "Sequence identity (%) versus TM-score by default; points link back to a selected pair.",
             "Structural conservation profile": "Cα positional variability (Å) with a separate position-coverage track.",
             "Key-residue comparison": "Explicit key reference residues compared across targets with units and missing mappings visible.",
-            "MSA conservation profile": "Alignment-column conservation with gap and ambiguous-residue tracks; gaps are not amino acids.",
+            "MSA conservation profile": "Alignment-column conservation (fraction). Select a mapped position to inspect its residue.",
             "Sequence logo": "Letter heights are pᵢ × information content, with canonical amino acids only.",
             "Interaction difference matrix": "Reference-normalized conserved, gained, lost, and target-only-unmapped interactions.",
             "Site comparison": "Global-frame and site-fitted RMSD remain separate; envelope volume is not a cavity volume.",
@@ -295,13 +269,9 @@ class VisualizationMixin(QtMixinContext):
 
     def _selected_chart_dataset(self, result: AnalysisResult | None) -> ChartDataset | MatrixDataset | None:
         label = self.chart_combo.currentText()
-        if label == "Structural deviation profile" and result is not None:
-            return structural_deviation_profile(result)
-        dataset = self._chart_datasets.get(label)
-        if dataset is None and label == "MSA conservation profile":
-            dataset = self._msa_chart_dataset
+        dataset = self._available_chart(label, result)
         if dataset is None:
-            self._show_error(f"The {label} dataset is unavailable. Run its scientific service before exporting.")
+            self._show_error(self._chart_unavailable_reason(label))
         return dataset
 
 

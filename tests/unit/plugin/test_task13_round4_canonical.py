@@ -458,16 +458,18 @@ def test_report_visualization_does_not_convert_to_legacy_analysis(application, t
     panel.deleteLater()
 
 
-def test_canonical_pymol_bundle_route_fails_closed_until_snapshot_native_writer_exists(
+def test_canonical_pymol_route_exports_native_scene_without_legacy_writer(
     application, tmp_path: Path, monkeypatch
 ) -> None:
-    """Task 13 cannot silently hand a mutable-path legacy bundle to users."""
+    """A canonical export must use the verified snapshots even if source files disappear."""
 
     request, report = rich_report(tmp_path)
-    output = tmp_path / "blocked.structlens-pymol"
+    output = tmp_path / "verified scene.pml"
     panel = build_qt_panel(command=None)
     controller = panel._structlens_controller
     _load_report_on_panel(controller, request, report)
+    Path(request.reference_selection.path).unlink()
+    Path(request.target_selection.path).unlink()
     calls: list[object] = []
     errors: list[str] = []
     controller._show_error = errors.append
@@ -485,8 +487,8 @@ def test_canonical_pymol_bundle_route_fails_closed_until_snapshot_native_writer_
     controller._export_pymol_bundle()
 
     assert not calls
-    assert not output.exists()
-    assert errors and "unavailable for this report format" in errors[-1].lower()
+    assert output.is_file() and output.read_text().startswith("python\n")
+    assert not errors
     controller.close()
     panel.deleteLater()
 

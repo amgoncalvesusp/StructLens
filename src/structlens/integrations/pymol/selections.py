@@ -15,12 +15,16 @@ def selection_name(project_id: str, target_id: str, purpose: str) -> str:
 
 def residue_selection(residue: ResidueId) -> str:
     insertion = residue.insertion_code or ""
+    if not re.fullmatch(r"-?\d+", str(residue.auth_seq_id)) or not re.fullmatch(r"[A-Za-z0-9]?", insertion):
+        raise ValueError("Unsupported residue identifier for a PyMOL selection")
     return f"chain {quote_identifier(residue.chain_id)} and resi {residue.auth_seq_id}{insertion}"
 
 
 def quote_identifier(value: str) -> str:
-    if not value or any(character in value for character in "'\"\\"):
-        raise ValueError("PyMOL identifiers must be non-empty and quote-free")
+    if not value.strip():
+        return '""'
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+        raise ValueError("Unsupported identifier for a PyMOL selection")
     return value
 
 

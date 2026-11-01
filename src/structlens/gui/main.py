@@ -48,6 +48,30 @@ def main(argv: list[str] | None = None) -> int:
     panel: Any = build_qt_panel(command=None)
     _fit_window_to_screen(panel)
     panel.show()
+    if arguments[1:2] == ["--smoke-report"]:
+        from structlens.application.report_serialization import load_report
+
+        controller = panel._structlens_controller
+        try:
+            if len(arguments) != 4:
+                raise ValueError("--smoke-report requires a report and its self-comparison input")
+            report = load_report(arguments[2], source_paths=(arguments[3], arguments[3]))
+            controller._populate_report(report)
+            if controller.result_labels["mutation_count"].text() != "0" or not controller.residue_table.rowCount():
+                raise ValueError("unexpected self-comparison results")
+            controller._render_selected_chart()
+            if controller._chart_canvas is None:
+                raise RuntimeError("packaged GUI did not render the structural deviation profile")
+            controller._chart_canvas.draw()
+            application.processEvents()
+        except Exception as exc:
+            if sys.stderr is not None:
+                print(f"GUI package check failed: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            controller.close()
+            panel.close()
+        return 0
     return int(application.exec())
 
 

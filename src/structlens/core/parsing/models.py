@@ -69,7 +69,7 @@ def _ids(values: Sequence[object], name: str) -> tuple[str, ...]:
     normalized = tuple(_text(value, name) for value in values)
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{name} must not contain duplicates")
-    return tuple(sorted(normalized))
+    return normalized
 
 
 def _chain_ids(values: Sequence[object], name: str) -> tuple[str, ...]:
@@ -322,6 +322,7 @@ class StructureMetadata:
         elif model_id is not None and str(selected_model).strip() != str(model_id).strip():
             raise ValueError("selected_model and model_id must match")
         model = _text(selected_model, "selected_model")
+        # Coordinate-file model order defines viewer state numbers, independently of author serials.
         models = _ids(available_models or (model,), "available_model")
         if model not in models:
             raise ValueError("selected_model must be included in available_models")
@@ -339,7 +340,7 @@ class StructureMetadata:
         object.__setattr__(self, "assembly_scope", _enum(assembly_scope, AssemblyScope, "assembly scope"))
         object.__setattr__(self, "author_chain_ids", _chain_ids(author_chain_ids, "author_chain_id"))
         object.__setattr__(self, "label_chain_ids", _chain_ids(label_chain_ids, "label_chain_id"))
-        object.__setattr__(self, "entity_ids", _ids(entity_ids, "entity_id"))
+        object.__setattr__(self, "entity_ids", tuple(sorted(_ids(entity_ids, "entity_id"))))
 
     @property
     def source_format(self) -> StructureFormat:

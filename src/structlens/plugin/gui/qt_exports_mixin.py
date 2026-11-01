@@ -8,9 +8,10 @@ from collections.abc import Mapping
 
 from .project_transaction import parse_visualization_state
 from .qt_context import *  # noqa: F401,F403
+from .qt_pymol_scene import PyMOLSceneMixin
 
 
-class ExportMixin(QtMixinContext):
+class ExportMixin(PyMOLSceneMixin):
     """Cohesive GUI-only exports behavior composed into PanelController."""
 
     def _save_project(self) -> None:
@@ -71,7 +72,7 @@ class ExportMixin(QtMixinContext):
         except (OSError, ValueError, BundleValidationError, ProjectSchemaError) as exc:
             self._show_error(f"Could not open project: {exc}")
 
-    def _commit_canonical_project(self, candidate: CanonicalProjectCandidate, path: Path) -> None:
+    def _commit_canonical_project(self, candidate: CanonicalProjectCandidate, path: Path | None) -> None:
         project = candidate.project
         binding = candidate.binding
         reference_chain, target_chain = self._validate_project_selections(candidate)
@@ -97,12 +98,19 @@ class ExportMixin(QtMixinContext):
             self._set_combo_value(self.comparison_combo, project.comparison_mode.value)
             self._apply_visualization_state(candidate.visualization_state)
             self._site_definitions = binding.request.site_definitions
-            self._analysis_history = ()
-            self._report_history = ()
-            self._presentation_history = ()
+            self._refresh_configured_sites()
+            if path is not None:
+                self._analysis_history = ()
+                self._report_history = ()
+                self._presentation_history = ()
+            else:
+                report_id = binding.report.report_id
+                self._report_history = tuple(r for r in self._report_history if r.report_id != report_id)
+                self._presentation_history = tuple(p for p in self._presentation_history if p.report_id != report_id)
             self._pending_report_request = None
             self._commit_report(binding.report, binding.presentation, binding)
-            self._set_status(f"Verified canonical project opened · {path.name}")
+            self._set_status(f"Verified canonical project opened · {path.name}" if path is not None
+                             else f"Verified variant report opened · {candidate.target_source.path.name}")
         except Exception:
             self._restore_panel_transaction_state(previous)
             raise
@@ -132,8 +140,10 @@ class ExportMixin(QtMixinContext):
             "presentation_history": self._presentation_history,
             "selection_controller": self._selection_controller,
             "residue_filter": self.residue_filter_combo.currentData(),
+            "residue_query": self.residue_search.text(),
             "residue_index": int(residue.text()) if residue is not None else None,
             "residue_card": self.evidence_card_label.text(),
+            "contact_view": self._capture_contact_view(),
             "analysis_history": self._analysis_history,
             "site_metrics": self._site_metrics,
             "site_definitions": self._site_definitions,
@@ -175,6 +185,7 @@ class ExportMixin(QtMixinContext):
         else:
             self._invalidate_analysis_views()
 
+        self._set_residue_query(previous["residue_query"])
         self._set_residue_filter(previous["residue_filter"], previous["residue_index"])
         if previous["residue_index"] is None:
             self.residue_table.setCurrentCell(-1, -1)
@@ -191,12 +202,14 @@ class ExportMixin(QtMixinContext):
         self._analysis_history = previous["analysis_history"]
         self._site_metrics = previous["site_metrics"]
         self._site_definitions = previous["site_definitions"]
+        self._refresh_configured_sites()
         self._v03_bundle_payloads = previous["bundle_payloads"]
         self._v03_export_records = previous["export_records"]
         self._chart_datasets = previous["chart_datasets"]
         for name, text in previous["section_texts"].items():
             self.report_section_labels[name].setText(str(text))
         self._render_site_metrics(previous["site_metrics"])
+        self._restore_contact_view(previous["contact_view"])
         self.footer_status.setText(str(previous["footer_status"]))
         self.header_status.setText(str(previous["header_status"]))
         self.nav.setCurrentRow(int(previous["navigation"]))
@@ -378,14 +391,19 @@ class ExportMixin(QtMixinContext):
     def _export_pymol_bundle(self) -> None:
         if self.model.report is not None:
             try:
-                self._canonical_binding()
-            except (TypeError, ValueError) as exc:
+                binding = self._canonical_binding()
+                path, _ = self.w.QFileDialog.getSaveFileName(
+                    self.widget, "Export verified PyMOL scene", f"StructLens_{binding.report.report_id[:12]}.pml",
+                    "PyMOL scene script (*.pml)",
+                )
+                if path:
+                    self._write_canonical_scene(Path(path), focus=False)
+                    self._set_status(f"Verified PyMOL scene exported · {Path(path).name}")
+            except (OSError, TypeError, ValueError) as exc:
                 if self.model.binding is None and self._report_request is None:
                     self._show_error("Run a comparison before exporting a PyMOL bundle.")
                 else:
-                    self._show_error(f"Could not export canonical PyMOL bundle: {exc}")
-                return
-            self._show_error("PyMOL export is unavailable for this report format in this version. Use table or image exports.")
+                    self._show_error(f"Could not export canonical PyMOL scene: {exc}")
             return
         result = self.model.analysis
         if result is None:
@@ -419,12 +437,7 @@ class ExportMixin(QtMixinContext):
 
     def _open_in_pymol(self) -> None:
         if self.model.report is not None:
-            try:
-                self._canonical_binding()
-            except (TypeError, ValueError) as exc:
-                self._show_error(f"Could not open canonical PyMOL bundle: {exc}")
-                return
-            self._show_error("Opening this report format in PyMOL is unavailable in this version. Use table or image exports.")
+            self._open_canonical_scene(focus=False)
             return
         result = self.model.analysis
         if result is None:
@@ -464,15 +477,15 @@ class ExportMixin(QtMixinContext):
         if result is None and self.model.report is None:
             self._show_error("Run a comparison before exporting chart data.")
             return
-        dataset = self._selected_chart_dataset(result)
-        if dataset is None:
-            return
         if self.model.report is not None:
             try:
                 self._canonical_binding()
             except (TypeError, ValueError) as exc:
                 self._show_error(f"Could not export chart data: {exc}")
                 return
+        dataset = self._selected_chart_dataset(result)
+        if dataset is None:
+            return
         path, _ = self.w.QFileDialog.getSaveFileName(
             self.widget, "Export chart data", "structlens_chart.xlsx", "XLSX (*.xlsx)"
         )
@@ -489,15 +502,15 @@ class ExportMixin(QtMixinContext):
         if result is None and self.model.report is None:
             self._show_error("Run a comparison before exporting a chart image.")
             return
-        dataset = self._selected_chart_dataset(result)
-        if dataset is None:
-            return
         if self.model.report is not None:
             try:
                 self._canonical_binding()
             except (TypeError, ValueError) as exc:
                 self._show_error(f"Could not export chart image: {exc}")
                 return
+        dataset = self._selected_chart_dataset(result)
+        if dataset is None:
+            return
         path, _ = self.w.QFileDialog.getSaveFileName(
             self.widget,
             f"Export {suffix.upper()} chart ({dpi} dpi)",
@@ -590,73 +603,12 @@ class ExportMixin(QtMixinContext):
             }.get(key, "Choose a comparison topology to see its outputs and computational implications.")
         )
 
-    def _define_site_from_controls(self) -> None:
-        """Store a validated site request; metrics belong to the report service."""
-
-        positions = tuple(item.strip() for item in self.site_residues_edit.text().split(",") if item.strip())
-        mode_value = self.site_mode_combo.currentData()
-        if not isinstance(mode_value, str):
-            self._site_unavailable("Choose a supported site definition mode.")
-            return
-        try:
-            mode = SiteDefinitionMode(mode_value)
-        except ValueError:
-            self._site_unavailable("Choose a supported site definition mode.")
-            return
-        if mode is SiteDefinitionMode.KEY_RESIDUES and not positions:
-            self._site_unavailable("Key-residue sites need at least one reference position.")
-            return
-        reference = self._selected_chain(
-            self.reference_structure, self.reference_chain_combo, self.reference_model_combo
-        )
-        if reference is None:
-            self._site_unavailable("Load a reference chain before defining a site.")
-            return
-
-        reference_residues = tuple(
-            residue for position in positions if (residue := _find_residue(reference, position)) is not None
-        )
-        if mode is SiteDefinitionMode.KEY_RESIDUES and len(reference_residues) != len(positions):
-            self._site_unavailable("One or more key positions are not present in the selected reference chain.")
-            return
-
-        ligand_id = self.site_ligand_edit.text().strip() or None
-        if mode is SiteDefinitionMode.LIGAND_RADIUS and not ligand_id:
-            self._site_unavailable("Ligand-radius sites require a ligand identifier.")
-            return
-        center_residue = (
-            reference_residues[0] if mode is SiteDefinitionMode.RESIDUE_RADIUS and reference_residues else None
-        )
-        if mode is SiteDefinitionMode.RESIDUE_RADIUS and center_residue is None:
-            self._site_unavailable("Residue-radius sites require one reference center position, for example A:166.")
-            return
-        try:
-            definition = SiteDefinition(
-                "panel-site",
-                name="Panel site",
-                mode=mode,
-                reference_residues=reference_residues,
-                center_residue=center_residue,
-                ligand_id=ligand_id,
-                radius_angstrom=(
-                    None if mode is SiteDefinitionMode.KEY_RESIDUES else float(self.site_radius_spin.value())
-                ),
-            )
-        except (TypeError, ValueError) as exc:
-            self._site_unavailable(f"Invalid site definition: {exc}")
-            return
-
-        self._site_definitions = tuple(
-            item for item in self._site_definitions if item.site_id != definition.site_id
-        ) + (definition,)
-        self.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sites"))
-        self.site_status_label.setText("Site added. Run Compare structures to update the results.")
-        self._refresh_workflow_state()
 
     def _site_unavailable(self, message: str) -> None:
         """Keep site absence explicit instead of presenting fabricated zeros."""
 
-        self.set_site_metrics(())
+        if self.model.report is None:
+            self.set_site_metrics(())
         self.site_status_label.setText(f"Unavailable · {message}")
         self.nav.setCurrentRow(SCIENTIFIC_SECTIONS.index("Sites"))
         self._show_error(message)
@@ -700,20 +652,31 @@ class ExportMixin(QtMixinContext):
     def _update_chart_export_state(self, label: str) -> None:
         """Keep export controls aligned with the chart profile they produce."""
 
-        supported = (
-            label == "Structural deviation profile"
-            or label in self._chart_datasets
-            or (label == "MSA conservation profile" and self._msa_chart_dataset is not None)
+        if self.model.report is None and self.model.analysis is None and not self._chart_datasets:
+            self._clear_chart_selection()
+            self._chart_canvas = None
+        available = []
+        for index in range(self.chart_combo.count()):
+            name = self.chart_combo.itemText(index)
+            item = self.chart_combo.model().item(index)
+            if self._available_chart(name) is not None:
+                available.append(name)
+                item.setToolTip("Available in this comparison.")
+            else:
+                # Keep unavailable choices inspectable by mouse and keyboard.
+                item.setToolTip(self._chart_unavailable_reason(name))
+        self.chart_availability_label.setText(
+            f"Available ({len(available)}/{self.chart_combo.count()}): {', '.join(available) or 'none'}. "
+            "Select another option to see its requirements."
         )
+        can_export = self.model.binding is not None or self.model.analysis is not None
+        supported = label in available and can_export
         for button in self.chart_export_buttons:
             button.setEnabled(supported)
-            if supported:
-                button.setToolTip("Export the selected authoritative chart dataset.")
+            if not can_export:
+                button.setToolTip("Run a comparison with verified sources before exporting charts.")
             else:
-                button.setToolTip(
-                    "This chart profile is available as structured data in the application API; "
-                    "GUI image/XLSX export is currently implemented for Structural deviation profile."
-                )
+                button.setToolTip("Export this measured chart." if supported else self._chart_unavailable_reason(label))
 
     def _set_combo_value(self, combo: Any, value: str) -> None:
         for index in range(combo.count()):
@@ -722,14 +685,11 @@ class ExportMixin(QtMixinContext):
                 return
 
     def _refresh_pymol_status(self) -> None:
-        if self.model.report is not None:
-            self.pymol_status.setText("PyMOL export is unavailable for this report format in this version.")
-            return
         try:
             executable = PyMOLLauncher(self.pymol_edit.text().strip() or None).locate()
         except Exception:
             self.pymol_status.setText(
-                "Ready to export · PyMOL executable not configured or not found. Export remains available even without PyMOL."
+                "PyMOL executable not found. Export the scene to open it manually."
             )
             return
         self.pymol_status.setText(
@@ -737,6 +697,8 @@ class ExportMixin(QtMixinContext):
         )
 
     def close(self) -> None:
+        if self.variant_batch is not None:
+            self.variant_batch.shutdown()
         if self._future is not None:
             self._cancel_event.set()
             self._future.cancel()

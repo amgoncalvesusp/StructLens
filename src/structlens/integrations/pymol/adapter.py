@@ -14,11 +14,14 @@ from structlens.core.models import (
     ResidueCorrespondence,
     ResidueId,
 )
-from structlens.core.parsing import InputSelection, SourceSnapshot, load_structure_legacy_snapshot
+from structlens.core.parsing import InputSelection, SourceSnapshot
 from structlens.core.reports import AnalysisReport, AnalysisSnapshot, CorrespondenceSnapshot
 from structlens.plugin.visualization.renderer import VisualizationRenderer, VisualizationState
 
+from .scene_runtime import author_numbering, selected_indices
 from .selections import quote_identifier, residue_selection, selection_name
+from .snapshot_selection import selected_coordinates
+from .transforms import apply_transform
 
 _STATUS_COLORS = {
     CorrespondenceStatus.CONSERVED: "slate",
@@ -119,6 +122,9 @@ class PyMOLAdapter:
         if report.analysis is None:
             self.reset()
             return
+        fit = report.analysis.transform
+        if fit is None:
+            raise ValueError("This report has no verified target-to-reference fit.")
         view = state or VisualizationState()
         self.reset()
         try:
@@ -128,6 +134,7 @@ class PyMOLAdapter:
             target_scope = self._materialize_selected_snapshot(
                 snapshots[1], report.target_selection, report.report_id, "target"
             )
+            apply_transform(self.command, target_scope, fit.rotation, fit.translation)
             self._apply_analysis(
                 report.analysis,
                 target_id=None,
@@ -209,15 +216,7 @@ class PyMOLAdapter:
         if len(selection.author_chain_ids) != 1:
             raise ValueError(f"{role} PyMOL visualization requires exactly one author chain")
         chain_id = selection.author_chain_ids[0]
-        parsed = load_structure_legacy_snapshot(snapshot)
-        model_ids = tuple(dict.fromkeys(str(chain.model_id) for chain in parsed.chains))
-        if selection.model_id not in model_ids:
-            raise ValueError(f"{role} selected model {selection.model_id} is absent from the snapshot")
-        if not any(str(chain.model_id) == selection.model_id and chain.chain_id == chain_id for chain in parsed.chains):
-            raise ValueError(
-                f"{role} selected model {selection.model_id} / chain {chain_id} is absent from the snapshot"
-            )
-        source_state = model_ids.index(selection.model_id) + 1
+        source_state, conformers = selected_coordinates(snapshot, selection)
         source_name = self._unique_object_name(report_id, f"{role}_snapshot")
         suffix = ".pdb" if snapshot.logical_format == "pdb" else ".cif"
         temporary: Path | None = None
@@ -228,7 +227,8 @@ class PyMOLAdapter:
             load = getattr(self.command, "load", None)
             if load is None:
                 raise RuntimeError("PyMOL command proxy cannot load canonical snapshots")
-            load(str(temporary), source_name)
+            with author_numbering(self.command, suffix == ".cif"):
+                load(str(temporary), source_name)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -241,13 +241,20 @@ class PyMOLAdapter:
         # PyMOL MODEL records are object states, not an atom-selection
         # ``model <number>`` predicate.  ``source_state`` performs the real
         # model isolation; the expression constrains the authoritative chain.
-        create(
-            selected_name,
-            f"model {quote_identifier(source_name)} and chain {quote_identifier(chain_id)}",
-            source_state,
-            1,
-        )
+        expression = f"model {quote_identifier(source_name)} and chain {quote_identifier(chain_id)}"
+        if conformers:
+            filtered = self._unique_selection_name(report_id, f"{role}_conformers")
+            command = cast(Any, self.command)
+            indices = selected_indices(command, source_name, source_state, chain_id, conformers)
+            if not indices:
+                raise ValueError(f"No PyMOL atoms match the selected {role} conformers.")
+            command.select_list(filtered, source_name, indices, state=source_state, mode="index")
+            self._owned_selections.add(filtered)
+            expression = filtered
+        create(selected_name, expression, source_state, 1)
         self._owned_objects.add(selected_name)
+        self._call("disable", source_name)
+        self._call("disable", selected_name)
         return selected_name
 
     def _unique_object_name(self, report_id: str, purpose: str) -> str:

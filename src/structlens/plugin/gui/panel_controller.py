@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from .qt_context import *  # noqa: F401,F403
 from .qt_exports_mixin import ExportMixin
+from .qt_ligand_contacts import LigandContactsMixin
 from .qt_pages_mixin import PageMixin
 from .qt_presentation_mixin import PresentationMixin
 from .qt_reports_mixin import ReportMixin
@@ -31,6 +32,7 @@ def build_panel(
 
 class PanelController(
     ShellMixin,
+    LigandContactsMixin,
     Task14PageMixin,
     PageMixin,
     PresentationMixin,
@@ -118,6 +120,10 @@ class PanelController(
         self._build_visualization_page()
         self._build_pymol_page()
         self._build_export_page()
+        plain_text = getattr(self.c.Qt, "TextFormat", self.c.Qt).PlainText
+        for label in self.widget.findChildren(self.w.QLabel):
+            if label is not self.result_decision:
+                label.setTextFormat(plain_text)
         self._wire_navigation()
         self._wire_workflow_controls()
         self._set_status(self.model.status)

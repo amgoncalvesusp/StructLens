@@ -57,5 +57,17 @@ class PyMOLLauncher:
             raise PyMOLPluginUnavailableError(f"Could not start PyMOL: {error}") from error
         return LaunchResult(executable, path, process.pid)
 
+    def launch_scene(self, scene_path: str | Path) -> LaunchResult:
+        """Pass a generated native scene as a file, never as a PyMOL command."""
+        path = Path(scene_path).resolve(strict=True)
+        if path.suffix.lower() != ".pml" or not path.is_file():
+            raise ValueError("Expected a native PyMOL scene (.pml)")
+        executable = self.locate()
+        try:
+            process = subprocess.Popen([str(executable), str(path)], shell=False)
+        except OSError as error:
+            raise PyMOLPluginUnavailableError(f"Could not start PyMOL: {error}") from error
+        return LaunchResult(executable, path, process.pid)
+
 
 __all__ = ["LaunchResult", "PyMOLLauncher"]

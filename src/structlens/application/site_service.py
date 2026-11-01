@@ -146,8 +146,25 @@ def calculate_site_metrics(
 ) -> SiteMetrics:
     """Calculate site metrics while preserving deleted/unmapped residues."""
 
-    target_by_id = {item.residue_id: item for item in target_residues}
     selected = define_site(definition, reference_residues, ligand_atoms=ligand_atoms)
+    return measure_resolved_site(
+        definition, selected, target_residues, correspondence,
+        target_structure_id=target_structure_id, target_transform=target_transform, sasa_angstrom2=sasa_angstrom2,
+    )
+
+
+def measure_resolved_site(
+    definition: SiteDefinition,
+    selected: Sequence[ResidueRecord],
+    target_residues: Sequence[ResidueRecord],
+    correspondence: Mapping[ResidueId, ResidueId],
+    *,
+    target_structure_id: str,
+    target_transform: np.ndarray | None = None,
+    sasa_angstrom2: float | None = None,
+) -> SiteMetrics:
+    """Measure the exact reference members used for evidence-card attribution."""
+    target_by_id = {item.residue_id: item for item in target_residues}
     mapped_pairs = [
         (item, target_by_id[correspondence[item.residue_id]])
         for item in selected

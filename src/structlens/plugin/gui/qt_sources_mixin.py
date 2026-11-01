@@ -51,7 +51,6 @@ class SourceMixin(QtMixinContext):
             object_name = pymol_object_name
             loaded = LoadedSource(loaded.path, loaded.snapshot, structure, object_name)
             self._invalidate_analysis_views()
-            self._clear_source(role)
             self._install_loaded_source(role, loaded)
             self._set_status(f"{role.title()} loaded · choose chains or run comparison")
             return True
@@ -263,6 +262,7 @@ class SourceMixin(QtMixinContext):
             reference_chain_id=self._combo_data(self.reference_chain_combo),
             target_chain_id=self._combo_data(self.target_chain_combo),
         )
+        self._refresh_site_reference()
         self._refresh_workflow_state()
 
     def _wire_workflow_controls(self) -> None:
@@ -330,12 +330,15 @@ class SourceMixin(QtMixinContext):
         self.header_status.setText(state)
         self.header_status.setToolTip(hint)
         self.compare_button.setToolTip(hint)
-        pymol_supported = self.model.report is None and self.model.analysis is not None
+        report = self.model.report
+        canonical_scene = bool(self.model.binding and report and report.analysis and report.analysis.transform)
+        pymol_supported = canonical_scene or (report is None and self.model.analysis is not None)
         for button in (self.pymol_open_button, self.pymol_export_button):
-            button.setEnabled(pymol_supported)
+            button.setEnabled(pymol_supported and not self.model.busy)
+        self.residue_pymol_button.setEnabled(canonical_scene and self.model.selection is not None and not self.model.busy)
         self.pymol_report_status.setText(
-            "PyMOL export is unavailable for this report format in this version. Use the table and image exports."
-            if self.model.report is not None
+            "Export a native .pml scene with verified coordinates and the reported fit. Select a residue to add a detail scene."
+            if canonical_scene else "No verified source binding or fitted transform is available for this report." if report is not None
             else "PyMOL bundle export is available for this legacy comparison." if pymol_supported
             else "Load a supported comparison project to export a PyMOL bundle."
         )
@@ -540,9 +543,12 @@ class SourceMixin(QtMixinContext):
         except Exception as exc:
             self._analysis_failed(str(exc))
 
-    def _manual_pairs(self, reference: ProteinChain, target: ProteinChain) -> list[tuple[ResidueId, ResidueId]]:
+    def _manual_pairs(
+        self, reference: ProteinChain, target: ProteinChain, *, text: str | None = None
+    ) -> list[tuple[ResidueId, ResidueId]]:
         pairs: list[tuple[ResidueId, ResidueId]] = []
-        for line_number, raw_line in enumerate(self.manual_edit.toPlainText().splitlines(), 1):
+        raw = self.manual_edit.toPlainText() if text is None else text
+        for line_number, raw_line in enumerate(raw.splitlines(), 1):
             line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue

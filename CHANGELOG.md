@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Corrected mutation counts and linked the alignment, residue table, evidence card and charts by the reported correspondence.
+- Added an interactive signed distance-difference map, named ligand sites, membership previews, contact diagrams and import of verified DockLens results.
+- Added a reference-versus-variants queue and native PyMOL scenes for verified canonical reports.
+- Packaged the desktop chart renderer for Windows and Linux. See [release notes](RELEASE_NOTES_v0.5.0.md) for the workflows and evidence limits.
+
 ## 0.4.1
 
 - Improved GUI page navigation, responsive layouts, scrolling, and collapsible advanced controls across supported display scales.

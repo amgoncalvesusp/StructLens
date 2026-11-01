@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from html import escape
+
 from .presentation import present_report
 from .qt_context import *  # noqa: F401,F403
 from .residues_page import residue_details
@@ -34,9 +36,12 @@ class ReportMixin(QtMixinContext):
         }
         self.mutation_table.setRowCount(0)
         self.residue_table.setRowCount(0)
+        self._set_alignment_rows(())
+        self._set_residue_query("")
         self.residue_filter_combo.setCurrentIndex(0)
         self.evidence_card_label.setText("Select a residue to inspect its evidence.")
         self._set_mutation_counts(None)
+        self._refresh_ligand_contacts()
         self.structure_result_table.setRowCount(0)
         self.structure_result_summary.setText("Run Compare structures to see results in Results summary.")
         self._render_site_metrics(())
@@ -58,9 +63,7 @@ class ReportMixin(QtMixinContext):
         self._refresh_workflow_state()
 
     def _populate_result(self, result: AnalysisResult) -> None:
-        self.result_decision.setText(
-            f"<b>{result.alignment_decision}</b><br>Reference: {result.reference_id} · Target: {result.target_id}"
-        )
+        self._set_report_decision(result.alignment_decision, result.reference_id, result.target_id)
         values = {
             "sequence_identity": f"{result.sequence_identity:.1%}",
             "sequence_similarity": "—" if result.sequence_similarity is None else f"{result.sequence_similarity:.1%}",
@@ -84,6 +87,7 @@ class ReportMixin(QtMixinContext):
         self._render_selected_chart()
         self._fill_mutations(result)
         self._fill_residues(result)
+        self._set_alignment_rows(result.correspondences)
         self._update_legend()
 
     def _populate_report(
@@ -99,6 +103,9 @@ class ReportMixin(QtMixinContext):
         presentation = present_report(report)
         binding = None if request is None else CanonicalReportBinding.create(report, request, presentation)
         self._commit_report(report, presentation, binding)
+
+    def _set_report_decision(self, decision: str, reference: str, target: str) -> None:
+        self.result_decision.setText(f"<b>{escape(decision)}</b><br>Reference: {escape(reference)} · Target: {escape(target)}")
 
     def _commit_report(
         self,
@@ -340,6 +347,8 @@ class ReportMixin(QtMixinContext):
         if item is None:
             return
         self.evidence_card_label.setText(residue_details(item, result.mutations))
+        self._sync_alignment_selection(alignment_index)
+        self._highlight_chart_residue(alignment_index)
         selection = self._pymol.focus_residue(item, result.target_id) if focus_pymol else None
         if selection:
             self._set_status(f"Focused {selection} in PyMOL")
@@ -362,6 +371,9 @@ class ReportMixin(QtMixinContext):
             card = None
         self.model = replace(self.model, selection=self._selection_controller.selection)
         self.evidence_card_label.setText(residue_details(item, report.analysis.mutations, card))
+        self._sync_alignment_selection(alignment_index)
+        self._sync_ligand_contact_selection(alignment_index)
+        self._highlight_chart_residue(alignment_index)
         self._set_status(f"Residue {alignment_index} selected in the canonical report")
 
     # -------------------------------------------------------------- persistence

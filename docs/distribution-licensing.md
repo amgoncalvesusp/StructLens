@@ -16,6 +16,7 @@ This is conservative engineering compliance, not legal advice.
 | MUSCLE 5.3 | Multiple sequence alignment | GPL-3 | Separate executable plus corresponding source |
 | US-align | Structural superposition | Permissive upstream notice | Compiled from pinned source |
 | FreeSASA | Solvent-accessible surface area | MIT | Python package and C library |
+| Matplotlib | Interactive charts | Matplotlib licence | Frozen into GUI artifacts with distribution metadata |
 | Biopython, NumPy, SciPy, OpenPyXL, Pillow | Scientific and I/O libraries | Own permissive licences | Installed as dependencies |
 
 ## Qt binding policy

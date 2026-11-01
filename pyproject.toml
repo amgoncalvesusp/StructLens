@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structlens"
-version = "0.4.1"
+version = "0.5.0"
 description = "Integrated protein sequence and structure comparison with reproducible PyMOL handoff"
 authors = [
     { name = "Adriano Marques Gonçalves (UNIARA)" },
@@ -15,7 +15,7 @@ dependencies = [
     "scipy>=1.10",
     "biopython>=1.81",
     "openpyxl>=3.1",
-    "Pillow>=12.3.0",
+    "Pillow>=13.0.0",
     "freesasa>=2.2.1",
 ]
 

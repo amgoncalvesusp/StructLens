@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, overload
 
 from structlens.core.models import (
     AnalysisResult,
@@ -19,6 +19,8 @@ from structlens.core.models import (
     ResidueId,
     TargetAnalysis,
 )
+from structlens.core.models.mutation import MutationKind
+from structlens.core.reports import DistanceMapSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,12 +53,42 @@ class MatrixCell:
 
 
 @dataclass(frozen=True, slots=True)
+class DistanceChartCells(Sequence[MatrixCell]):
+    """Adapt the matrix lazily instead of allocating an object for every pair at startup."""
+
+    matrix: DistanceMapSnapshot
+    has_measurements: bool = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "has_measurements", any(any(row) for row in self.matrix.valid_mask))
+
+    def __len__(self) -> int:
+        return len(self.matrix.reference_positions) ** 2
+
+    @overload
+    def __getitem__(self, index: int) -> MatrixCell: ...
+    @overload
+    def __getitem__(self, index: slice) -> tuple[MatrixCell, ...]: ...
+
+    def __getitem__(self, index: int | slice) -> MatrixCell | tuple[MatrixCell, ...]:
+        if isinstance(index, slice):
+            return tuple(self[i] for i in range(*index.indices(len(self))))
+        labels = self.matrix.reference_positions
+        if not -len(self) <= index < len(self):
+            raise IndexError(index)
+        r, c = divmod(index % len(self), len(labels))
+        value = self.matrix.delta_angstrom[r][c] if self.matrix.valid_mask[r][c] else None
+        return MatrixCell(labels[r], labels[c], value, "—" if value is None else f"{value:+.3f} Å",
+                          "unavailable" if value is None else "measured")
+
+
+@dataclass(frozen=True, slots=True)
 class MatrixDataset:
     chart_id: str
     title: str
     row_label: str
     column_label: str
-    cells: tuple[MatrixCell, ...]
+    cells: tuple[MatrixCell, ...] | DistanceChartCells
     interpretation: str
 
 
@@ -116,25 +148,24 @@ def mutation_conservation_matrix(
     """Project mutation status into a reference-position matrix."""
 
     if isinstance(analysis, AnalysisResult):
-        rows = {analysis.target_id: analysis.correspondences}
+        rows = {analysis.target_id: (analysis.correspondences, analysis.mutations)}
     else:
-        rows = {target_id: target.correspondence for target_id, target in analysis.targets.items()}
+        rows = {name: (target.correspondence, target.mutations) for name, target in analysis.targets.items()}
+    scores = {MutationKind.CONSERVED: 1.0, MutationKind.SUBSTITUTION: 0.0}
     cells: list[MatrixCell] = []
-    for row, correspondences in rows.items():
+    for row, (correspondences, mutations) in rows.items():
+        by_index = {event.alignment_index: event for event in mutations}
         for item in correspondences:
-            reference_label = _residue_label(item.reference)
             if item.reference is None:
                 continue
-            text = f"{item.reference_one_letter or '?'}{item.target_one_letter or '-'}"
-            if item.reference_one_letter and item.target_one_letter:
-                text = f"{item.reference_one_letter}{item.reference.auth_seq_id}{item.target_one_letter}"
+            event = by_index.get(item.alignment_index)
             cells.append(
                 MatrixCell(
                     row,
-                    reference_label,
-                    1.0 if item.status.value == "conserved" else 0.0,
-                    text,
-                    item.status.value,
+                    _residue_label(item.reference),
+                    scores.get(event.kind) if event else None,
+                    event.canonical_notation if event else "—",
+                    event.kind.value if event else "unavailable",
                     {"alignment_index": item.alignment_index, "target_residue": _residue_label(item.target)},
                 )
             )
@@ -144,7 +175,8 @@ def mutation_conservation_matrix(
         "Structure",
         "Reference-aligned position",
         tuple(cells),
-        "Cell text preserves residue identity; status is not inferred from color alone.",
+        "Blue marks conserved amino acids (1), orange substitutions (0), and grey unscored positions. "
+        "Columns use reference positions; insertions without a reference position appear in the residue table.",
     )
 
 
